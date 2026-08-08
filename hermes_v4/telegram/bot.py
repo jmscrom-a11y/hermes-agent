@@ -22,6 +22,37 @@ from hermes_v4.workflow.engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 
+# Telegram's hard limit is 4096 chars per message; leave margin for
+# multi-byte counting differences.
+_TELEGRAM_MESSAGE_LIMIT = 4000
+
+
+def _split_message(text: str, limit: int = _TELEGRAM_MESSAGE_LIMIT) -> list[str]:
+    """Split text into <=limit chunks, preferring paragraph/line breaks."""
+    if len(text) <= limit:
+        return [text]
+
+    chunks = []
+    remaining = text
+    while len(remaining) > limit:
+        split_at = remaining.rfind("\n\n", 0, limit)
+        if split_at == -1:
+            split_at = remaining.rfind("\n", 0, limit)
+        if split_at == -1:
+            split_at = limit
+        chunks.append(remaining[:split_at].rstrip())
+        remaining = remaining[split_at:].lstrip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+async def _reply(update: Update, text: str) -> None:
+    chunks = _split_message(text)
+    for i, chunk in enumerate(chunks, start=1):
+        prefix = f"[{i}/{len(chunks)}]\n" if len(chunks) > 1 else ""
+        await update.message.reply_text(prefix + chunk)
+
 
 def _is_authorized(update: Update, allowed_user_ids: list[str]) -> bool:
     if not allowed_user_ids:
@@ -77,7 +108,7 @@ def make_message_handler(planner: Planner, engine: WorkflowEngine, llm: LLMProvi
             logger.warning("Planned execution failed (%s), falling back to direct reply", exc)
             answer = await _fallback_reply(llm, question)
 
-        await update.message.reply_text(answer)
+        await _reply(update, answer)
 
     return handle_message
 
