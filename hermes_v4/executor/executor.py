@@ -49,6 +49,14 @@ class Executor:
                 context.plan.context[action.output_key] = (
                     last_result.output if last_result.success else None
                 )
+                # Tools that produce non-text artifacts (e.g. ReportTool's
+                # generated files) surface them via ToolResult.metadata,
+                # which otherwise never reaches the plan — stash it under a
+                # parallel key so callers (e.g. the Telegram layer) can find
+                # e.g. metadata["file_paths"] for the step that answered.
+                context.plan.context[f"{action.output_key}__metadata"] = (
+                    last_result.metadata if last_result.success else {}
+                )
 
             if not last_result.success:
                 return last_result

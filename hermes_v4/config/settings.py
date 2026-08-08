@@ -101,8 +101,13 @@ class HermesSettings(BaseSettings):
     # "telegram" (messaging interface) are wired separately, not as
     # Tools, so they don't belong in this list.
     TOOLS_ENABLED: List[str] = Field(
-        default_factory=lambda: ["rag", "claude_code", "web_search", "git"]
+        default_factory=lambda: ["rag", "claude_code", "web_search", "git", "generate_report"]
     )
+
+    # ── Report Tool ───────────────────────────────────────────────
+    REPORTS_DIR: str = "data/reports"
+    REPORT_SECTIONS: int = 5
+    REPORT_BULLETS_PER_SECTION: int = 4
 
     # ── Telegram ──────────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN: str = ""

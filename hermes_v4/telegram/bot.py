@@ -66,14 +66,16 @@ def _is_authorized(update: Update, allowed_user_ids: list[str]) -> bool:
     return bool(user and str(user.id) in allowed_user_ids)
 
 
-def _final_answer(plan) -> str | None:
-    """Best-effort extraction of the plan's final answer from its last step."""
+def _final_answer(plan) -> tuple[str | None, list[str]]:
+    """Best-effort extraction of the plan's final answer (and any file
+    artifacts, e.g. from ReportTool) from its last successful step."""
     for step in reversed(plan.steps):
         for action in reversed(step.actions):
             value = plan.context.get(action.output_key)
             if value:
-                return str(value)
-    return None
+                meta = plan.context.get(f"{action.output_key}__metadata") or {}
+                return str(value), list(meta.get("file_paths") or [])
+    return None, []
 
 
 async def _fallback_reply(llm: LLMProvider, question: str) -> str:
@@ -108,6 +110,7 @@ def make_message_handler(
             metadata={"previous_context": history},
         )
 
+        file_paths: list[str] = []
         try:
             plan = await planner.plan(question, exec_context)
             plan = await engine.run(plan, exec_context)
@@ -115,7 +118,7 @@ def make_message_handler(
             # e.g. a search step can succeed and a redundant "report" step
             # can fail; discarding the search result in that case would
             # throw away a real answer in favor of a tool-less chat reply.
-            answer = _final_answer(plan)
+            answer, file_paths = _final_answer(plan)
             if answer is None:
                 raise RuntimeError(plan.error or "plan produced no answer")
             if not plan.is_complete:
@@ -125,6 +128,12 @@ def make_message_handler(
             answer = await _fallback_reply(llm, question)
 
         await _reply(update, answer)
+        for path in file_paths:
+            try:
+                with open(path, "rb") as f:
+                    await update.message.reply_document(f, filename=pathlib.Path(path).name)
+            except OSError as exc:
+                logger.warning("Failed to send generated file '%s': %s", path, exc)
 
         if memory is not None:
             await memory.save_message(user_id, "user", question)

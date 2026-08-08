@@ -10,5 +10,6 @@ pymupdf
 python-pptx==1.0.2
 python-telegram-bot==22.8
 rank_bm25
+reportlab
 requests==2.34.2
 pytest

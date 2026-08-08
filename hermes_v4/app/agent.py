@@ -18,6 +18,7 @@ from hermes_v4.telegram.bot import build_application
 from hermes_v4.tools.claude_code_tool import ClaudeCodeTool
 from hermes_v4.tools.git_tool import GitTool
 from hermes_v4.tools.rag_tool import RAGTool
+from hermes_v4.tools.report_tool import ReportTool
 from hermes_v4.tools.web_search_tool import WebSearchTool
 from hermes_v4.workflow.engine import WorkflowEngine
 
@@ -25,12 +26,16 @@ logger = logging.getLogger(__name__)
 
 # Maps a TOOLS_ENABLED entry to its Tool class. Entries with no
 # implementation yet are skipped with a warning instead of crashing
-# startup.
+# startup. Tools that need the shared LLM instance (currently just
+# ReportTool) are special-cased in build_tool_registry() instead.
 _AVAILABLE_TOOLS = {
     "rag": RAGTool,
     "claude_code": ClaudeCodeTool,
     "web_search": WebSearchTool,
     "git": GitTool,
+}
+_LLM_DEPENDENT_TOOLS = {
+    "generate_report": ReportTool,
 }
 
 
@@ -48,9 +53,12 @@ def build_llm_provider(settings) -> LLMProvider:
     raise ValueError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER!r}")
 
 
-def build_tool_registry(settings) -> ToolRegistry:
+def build_tool_registry(settings, llm: LLMProvider) -> ToolRegistry:
     registry = ToolRegistry()
     for name in settings.TOOLS_ENABLED:
+        if name in _LLM_DEPENDENT_TOOLS:
+            registry.register(_LLM_DEPENDENT_TOOLS[name](llm))
+            continue
         tool_cls = _AVAILABLE_TOOLS.get(name)
         if tool_cls is None:
             logger.warning(
@@ -66,7 +74,7 @@ def main() -> None:
     logging.basicConfig(level=settings.LOG_LEVEL)
 
     llm = build_llm_provider(settings)
-    registry = build_tool_registry(settings)
+    registry = build_tool_registry(settings, llm)
     planner = Planner(
         llm_provider=llm,
         tool_registry=registry,
