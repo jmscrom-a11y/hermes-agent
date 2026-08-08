@@ -10,7 +10,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +18,11 @@ logger = logging.getLogger(__name__)
 EventHandler = Callable[["Event"], None] | Callable[["Event"], Any]
 
 
+@dataclass
 class Event:
     """Base class for all Hermes V4 events."""
 
-    event_type: str = "event"
+    event_type: ClassVar[str] = "event"
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> dict[str, Any]:

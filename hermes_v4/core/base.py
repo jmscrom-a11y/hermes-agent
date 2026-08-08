@@ -9,7 +9,6 @@ Defines the foundational interfaces:
 from __future__ import annotations
 
 import abc
-import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -73,8 +72,8 @@ class Tool(abc.ABC):
     description: str = ""
     enabled: bool = True
     version: str = "1.0.0"
-    input_schema: dict[str, Any] = field(default_factory=dict)  # type: ignore[assignment]
-    output_schema: dict[str, Any] = field(default_factory=dict)  # type: ignore[assignment]
+    input_schema: dict[str, Any] = {}
+    output_schema: dict[str, Any] = {}
 
     @abc.abstractmethod
     async def execute(self, input: dict[str, Any]) -> ToolResult:
