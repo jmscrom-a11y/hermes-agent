@@ -11,6 +11,7 @@ import asyncio
 import json
 import pathlib
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -48,12 +49,11 @@ class SqliteMemoryStore:
         return conn
 
     def _init_db(self) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute(_SCHEMA)
-            conn.commit()
 
     def _save_task_sync(self, plan: Plan) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tasks
@@ -70,13 +70,12 @@ class SqliteMemoryStore:
                     plan.completed_at.isoformat() if plan.completed_at else None,
                 ),
             )
-            conn.commit()
 
     async def save_task(self, plan: Plan) -> None:
         await asyncio.to_thread(self._save_task_sync, plan)
 
     def _get_task_sync(self, task_id: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
             return self._row_to_dict(row) if row else None
 
@@ -84,7 +83,7 @@ class SqliteMemoryStore:
         return await asyncio.to_thread(self._get_task_sync, task_id)
 
     def _list_recent_sync(self, limit: int) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
@@ -95,9 +94,8 @@ class SqliteMemoryStore:
 
     def _prune_sync(self) -> int:
         cutoff = (datetime.now() - timedelta(days=self.retention_days)).isoformat()
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             cursor = conn.execute("DELETE FROM tasks WHERE created_at < ?", (cutoff,))
-            conn.commit()
             return cursor.rowcount
 
     async def prune_old_tasks(self) -> int:

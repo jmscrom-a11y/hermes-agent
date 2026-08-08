@@ -6,6 +6,7 @@ Talks to Ollama's native /api/chat endpoint asynchronously.
 from __future__ import annotations
 
 import logging
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -52,6 +53,7 @@ class OllamaProvider(LLMProvider):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: str | None = None,
     ) -> ChatCompletion:
         chat_model = model or self.default_model
         options: dict[str, float | int] = {
@@ -61,18 +63,19 @@ class OllamaProvider(LLMProvider):
         if effective_max_tokens:
             options["num_predict"] = effective_max_tokens
 
+        payload: dict[str, Any] = {
+            "model": chat_model,
+            "messages": messages,
+            "stream": False,
+            "options": options,
+        }
+        if response_format == "json":
+            payload["format"] = "json"
+
         logger.info("Sending chat request to Ollama at %s (model=%s)", self.host, chat_model)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.host}/api/chat",
-                json={
-                    "model": chat_model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": options,
-                },
-            )
+            response = await client.post(f"{self.host}/api/chat", json=payload)
             response.raise_for_status()
             data = response.json()
 

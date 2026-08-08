@@ -55,6 +55,7 @@ class LLMProvider(abc.ABC):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: str | None = None,
     ) -> ChatCompletion:
         """Generate a chat completion.
 
@@ -63,6 +64,9 @@ class LLMProvider(abc.ABC):
             model: Optional model override.
             temperature: Optional temperature override.
             max_tokens: Optional max tokens override.
+            response_format: If "json", instruct the provider to force
+                syntactically valid JSON output (small local models in
+                particular tend to ignore prose instructions to do this).
 
         Returns:
             ChatCompletion with the model's response.

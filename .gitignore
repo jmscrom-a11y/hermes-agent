@@ -21,3 +21,6 @@ venv/
 
 # Local model weights (large binaries, never commit)
 models/
+
+# Runtime state
+data/hermes_v4.db

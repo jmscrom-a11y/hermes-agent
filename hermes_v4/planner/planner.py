@@ -120,6 +120,7 @@ class Planner:
                     {"role": "system", "content": "You are a planning engine. Respond with JSON only."},
                     {"role": "user", "content": prompt},
                 ],
+                response_format="json",
             )
             plan = self.strategy.parse_response(response.content)
             return plan

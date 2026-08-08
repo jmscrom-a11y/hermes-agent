@@ -109,23 +109,11 @@ Respond with a JSON plan:
         try:
             data = json.loads(response)
         except json.JSONDecodeError:
-            # If not valid JSON, wrap in a single step
-            return Plan(
-                request="",
-                steps=[
-                    Step(
-                        name="respond",
-                        description="Respond to user",
-                        actions=[
-                            Action(
-                                tool_name="telegram",
-                                input={"message": response},
-                                output_key="response",
-                            )
-                        ],
-                    )
-                ],
-            )
+            # No "telegram" or other reporting tool exists in the registry —
+            # return an empty plan so Planner._validate_plan rejects it and
+            # the caller's own fallback (e.g. a direct chat reply) kicks in,
+            # instead of failing later with a confusing "tool not found".
+            return Plan(request="", steps=[])
 
         steps = []
         for step_data in data.get("steps", []):

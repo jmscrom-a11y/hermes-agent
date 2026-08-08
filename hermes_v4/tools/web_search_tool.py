@@ -47,7 +47,10 @@ class WebSearchTool(Tool):
         from duckduckgo_search import DDGS
 
         with DDGS() as ddgs:
-            results = ddgs.news(query, max_results=max_results)
+            try:
+                results = ddgs.news(query, max_results=max_results)
+            except Exception:
+                results = None
             if not results:
                 results = ddgs.text(query, max_results=max_results)
         return results or []
