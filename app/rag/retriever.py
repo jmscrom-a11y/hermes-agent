@@ -34,9 +34,28 @@ def retrieve_documents(retriever, query):
 # BM25 Retriever
 
 
+# Matches a digit followed by whitespace then a single, standalone Korean
+# character (not the start of a longer word) — the shape of PDF-extraction
+# artifacts like "6 대" or "5 명", not real word boundaries like "통제활동 6".
+_NUMERAL_SPACING_RE = re.compile(r"(?<=[0-9])\s+(?=[가-힣](?:[^가-힣0-9]|$))")
+
+
+def _normalize_numeral_spacing(text: str) -> str:
+    """숫자와 뒤따르는 단일 한글 글자(단위/조사) 사이의 공백을 제거합니다
+    (예: "6 대" -> "6대").
+
+    PDF 텍스트 추출 시 자간 조정으로 숫자와 뒤따르는 한글 사이에 없어야 할
+    공백이 종종 들어간다. 이 공백이 남아있으면 "6대"처럼 자연스럽게 붙여
+    입력한 질의가 "6 대"로 추출된 문서 텍스트와 토큰 단위로 전혀 매칭되지
+    않아 BM25가 정답 문서를 완전히 놓친다.
+    """
+    return _NUMERAL_SPACING_RE.sub("", text)
+
+
 def _tokenize(text: str) -> list[str]:
     """문서를 토큰으로 분해합니다. 영문/숫자/한글/일본어 등 Unicode 문자 클래스를 사용합니다."""
     # 영문 + 숫자 + 한글 + 일본어 + 중국어 + 기타 Unicode 문자
+    text = _normalize_numeral_spacing(text)
     return re.findall(r"\w+|[^\s]", text, re.UNICODE)
 
 

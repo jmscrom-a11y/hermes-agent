@@ -54,8 +54,10 @@ class PromptBuilder:
             input_variables=["question", "context"],
         )
 
-    # 문서당 최대 내용 길이 (context 과다 방지)
-    MAX_CONTENT_PER_DOC = 300
+    # 문서당 최대 내용 길이 (context 과다 방지). 실제 청크가 1000자를
+    # 훌쩍 넘는 경우가 흔해서(예: 목록형 항목), 300자는 답변에 필요한
+    # 핵심 내용이 나오기도 전에 잘라버려 LLM이 "모른다"고 답하게 만들었다.
+    MAX_CONTENT_PER_DOC = 1200
 
     def build_context(self, documents):
         parts = []
