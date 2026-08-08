@@ -16,17 +16,21 @@ from hermes_v4.memory.store import SqliteMemoryStore
 from hermes_v4.planner.planner import Planner
 from hermes_v4.telegram.bot import build_application
 from hermes_v4.tools.claude_code_tool import ClaudeCodeTool
+from hermes_v4.tools.git_tool import GitTool
 from hermes_v4.tools.rag_tool import RAGTool
+from hermes_v4.tools.web_search_tool import WebSearchTool
 from hermes_v4.workflow.engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 
 # Maps a TOOLS_ENABLED entry to its Tool class. Entries with no
-# implementation yet (e.g. "tavily", "git") are skipped with a warning
-# instead of crashing startup.
+# implementation yet are skipped with a warning instead of crashing
+# startup.
 _AVAILABLE_TOOLS = {
     "rag": RAGTool,
     "claude_code": ClaudeCodeTool,
+    "web_search": WebSearchTool,
+    "git": GitTool,
 }
 
 

@@ -84,7 +84,7 @@ class HermesSettings(BaseSettings):
     # "telegram" (messaging interface) are wired separately, not as
     # Tools, so they don't belong in this list.
     TOOLS_ENABLED: List[str] = Field(
-        default_factory=lambda: ["rag", "claude_code", "tavily", "git"]
+        default_factory=lambda: ["rag", "claude_code", "web_search", "git"]
     )
 
     # ── Telegram ──────────────────────────────────────────────────
@@ -104,6 +104,14 @@ class HermesSettings(BaseSettings):
     # `claude` CLI login and breaks headless calls with 401s. Strip it by
     # default; set to False if you intentionally want API-key auth.
     CLAUDE_CODE_UNSET_API_KEY: bool = True
+
+    # ── Git Tool ──────────────────────────────────────────────────
+    # push/reset/checkout/rebase/clean are deliberately excluded — those
+    # can discard local work or affect the shared remote, which an
+    # LLM-triggered tool call shouldn't be able to do unsupervised.
+    GIT_TOOL_ALLOWED_COMMANDS: List[str] = Field(
+        default_factory=lambda: ["status", "diff", "log", "branch", "show", "add", "commit", "rev-parse"]
+    )
 
     # ── Safety ────────────────────────────────────────────────────
     SAFETY_ENABLED: bool = True
