@@ -28,6 +28,40 @@ def format_tool_list(tools: list[ToolInfo]) -> str:
     return "\n".join(lines)
 
 
+def _parse_steps(steps_data: list[dict[str, Any]]) -> list[Step]:
+    """Parse steps, assigning deterministic "step_N" ids instead of
+    Step's default random UUID.
+
+    The LLM has no way to know a step's real (randomly generated) id when
+    writing "depends_on" — it reliably invents readable placeholders like
+    "step_1" instead. Randomly-generated ids never match those, so
+    WorkflowGraph's dependency check (`d in self.nodes`) silently treats
+    the bogus reference as satisfied and the intended ordering is lost.
+    Assigning "step_N" ids in parse order — the same convention the LLM
+    already gravitates toward — makes "depends_on" actually work.
+    """
+    steps = []
+    for i, step_data in enumerate(steps_data, start=1):
+        actions = [
+            Action(
+                tool_name=a.get("tool_name", ""),
+                input=a.get("input", {}),
+                output_key=a.get("output_key", "output"),
+            )
+            for a in step_data.get("actions", [])
+        ]
+        steps.append(
+            Step(
+                id=step_data.get("id") or f"step_{i}",
+                name=step_data.get("name", ""),
+                description=step_data.get("description", ""),
+                actions=actions,
+                depends_on=step_data.get("depends_on", []),
+            )
+        )
+    return steps
+
+
 def format_history(context: dict[str, Any]) -> str:
     """Render recent conversation turns (if any) for the LLM, so follow-up
     requests like "그거 좀 더 설명해줘" can be understood without the user
@@ -108,6 +142,7 @@ Respond with a JSON plan:
 {{
   "steps": [
     {{
+      "id": "step_1",
       "name": "step name",
       "description": "what this step does",
       "actions": [
@@ -118,6 +153,13 @@ Respond with a JSON plan:
         }}
       ],
       "depends_on": []
+    }},
+    {{
+      "id": "step_2",
+      "name": "...",
+      "description": "...",
+      "actions": [{{"tool_name": "...", "input": {{}}, "output_key": "..."}}],
+      "depends_on": ["step_1"]
     }}
   ]
 }}"""
@@ -145,25 +187,7 @@ Respond with a JSON plan:
             # instead of failing later with a confusing "tool not found".
             return Plan(request="", steps=[])
 
-        steps = []
-        for step_data in data.get("steps", []):
-            actions = [
-                Action(
-                    tool_name=a.get("tool_name", ""),
-                    input=a.get("input", {}),
-                    output_key=a.get("output_key", "output"),
-                )
-                for a in step_data.get("actions", [])
-            ]
-            step = Step(
-                name=step_data.get("name", ""),
-                description=step_data.get("description", ""),
-                actions=actions,
-                depends_on=step_data.get("depends_on", []),
-            )
-            steps.append(step)
-
-        return Plan(request="", steps=steps)
+        return Plan(request="", steps=_parse_steps(data.get("steps", [])))
 
 
 class ParallelPlanningStrategy(PlanningStrategy):
@@ -189,6 +213,7 @@ Respond with a JSON plan:
 {{
   "steps": [
     {{
+      "id": "step_1",
       "name": "step name",
       "description": "what this step does",
       "actions": [
@@ -222,25 +247,7 @@ Respond with a JSON plan:
         except json.JSONDecodeError:
             return Plan(request="", steps=[])
 
-        steps = []
-        for step_data in data.get("steps", []):
-            actions = [
-                Action(
-                    tool_name=a.get("tool_name", ""),
-                    input=a.get("input", {}),
-                    output_key=a.get("output_key", "output"),
-                )
-                for a in step_data.get("actions", [])
-            ]
-            step = Step(
-                name=step_data.get("name", ""),
-                description=step_data.get("description", ""),
-                actions=actions,
-                depends_on=step_data.get("depends_on", []),
-            )
-            steps.append(step)
-
-        return Plan(request="", steps=steps)
+        return Plan(request="", steps=_parse_steps(data.get("steps", [])))
 
 
 class IterativePlanningStrategy(PlanningStrategy):
