@@ -78,7 +78,12 @@ class HermesSettings(BaseSettings):
 
     # ── Executor ──────────────────────────────────────────────────
     EXECUTOR_MAX_PARALLEL: int = 4
-    EXECUTOR_DEFAULT_TIMEOUT: int = 300
+    # Must exceed CLAUDE_CODE_TIMEOUT (600s) — this wraps every step
+    # including claude_code/generate_report calls, so a shorter value here
+    # makes that tool's own timeout unreachable (this wrapper always fires
+    # first) and asyncio.TimeoutError has no message, so a step killed by
+    # it fails with a blank error.
+    EXECUTOR_DEFAULT_TIMEOUT: int = 900
     EXECUTOR_RETRY_MAX_ATTEMPTS: int = 3
     EXECUTOR_RETRY_BACKOFF_FACTOR: float = 2.0
 

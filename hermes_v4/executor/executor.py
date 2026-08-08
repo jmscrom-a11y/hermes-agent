@@ -7,6 +7,7 @@ this for each DAG node; it has no notion of dependencies itself.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -65,8 +66,6 @@ class Executor:
 
     async def run_action(self, tool: Tool, tool_input: dict[str, Any], step: Step) -> ToolResult:
         """Run a single tool call with retry/timeout, publishing a ToolExecuted event."""
-        import asyncio
-
         timeout = step.timeout or self.default_timeout
 
         async def _call() -> ToolResult:
@@ -87,8 +86,13 @@ class Executor:
                 result = await handler.execute(_call, step_name=step.name)
             else:
                 result = await _call()
+        except asyncio.TimeoutError:
+            # str(TimeoutError()) is "" — asyncio.wait_for raises it with no
+            # args, so without this a timed-out step fails with a blank
+            # error message that's impossible to diagnose from logs alone.
+            result = ToolResult.fail(f"Step '{step.name}' timed out after {timeout}s")
         except Exception as exc:
-            result = ToolResult.fail(str(exc))
+            result = ToolResult.fail(str(exc) or f"{type(exc).__name__} (no message)")
 
         is_valid, validation_error = self.validator.validate(result)
         if result.success and not is_valid:
