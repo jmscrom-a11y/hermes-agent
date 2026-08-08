@@ -26,16 +26,14 @@ logger = logging.getLogger(__name__)
 
 # Maps a TOOLS_ENABLED entry to its Tool class. Entries with no
 # implementation yet are skipped with a warning instead of crashing
-# startup. Tools that need the shared LLM instance (currently just
-# ReportTool) are special-cased in build_tool_registry() instead.
+# startup. "generate_report" needs the shared LLM instance (and
+# optionally WebSearchTool) so it's special-cased in
+# build_tool_registry() instead of living here.
 _AVAILABLE_TOOLS = {
     "rag": RAGTool,
     "claude_code": ClaudeCodeTool,
     "web_search": WebSearchTool,
     "git": GitTool,
-}
-_LLM_DEPENDENT_TOOLS = {
-    "generate_report": ReportTool,
 }
 
 
@@ -56,8 +54,11 @@ def build_llm_provider(settings) -> LLMProvider:
 def build_tool_registry(settings, llm: LLMProvider) -> ToolRegistry:
     registry = ToolRegistry()
     for name in settings.TOOLS_ENABLED:
-        if name in _LLM_DEPENDENT_TOOLS:
-            registry.register(_LLM_DEPENDENT_TOOLS[name](llm))
+        if name == "generate_report":
+            # Self-researches via WebSearchTool if it's already registered
+            # (list TOOLS_ENABLED with "web_search" before "generate_report",
+            # the default order, for this to be available).
+            registry.register(ReportTool(llm, web_search_tool=registry.get_tool("web_search")))
             continue
         tool_cls = _AVAILABLE_TOOLS.get(name)
         if tool_cls is None:

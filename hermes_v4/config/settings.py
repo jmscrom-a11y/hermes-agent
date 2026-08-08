@@ -108,6 +108,10 @@ class HermesSettings(BaseSettings):
     REPORTS_DIR: str = "data/reports"
     REPORT_SECTIONS: int = 5
     REPORT_BULLETS_PER_SECTION: int = 4
+    # Report generation is a one-off, latency-tolerant request unlike
+    # interactive chat — worth spending a bigger/slower local model here
+    # for richer output. Empty string = use LLM_MODEL (the chat default).
+    REPORT_LLM_MODEL: str = "qwen3.6:27b"
 
     # ── Telegram ──────────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN: str = ""

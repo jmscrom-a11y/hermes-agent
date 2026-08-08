@@ -32,7 +32,8 @@ class ReportTool(Tool):
 
     name = "generate_report"
     description = (
-        "주제를 주면 LLM 지식을 바탕으로 발표자료(PPTX) 또는 문서(PDF) 보고서를 생성합니다. "
+        "주제를 주면 최신 웹 검색 결과로 리서치한 뒤 발표자료(PPTX) 또는 문서(PDF) 보고서를 생성합니다. "
+        "리서치를 직접 수행하므로 별도의 web_search 단계를 먼저 호출할 필요는 없습니다. "
         "'보고서 만들어줘', 'PPT로 정리해줘', 'PDF로 만들어줘' 같은 요청에 사용하세요."
     )
     input_schema = {
@@ -51,12 +52,24 @@ class ReportTool(Tool):
         },
     }
 
-    def __init__(self, llm: LLMProvider, output_dir: str | pathlib.Path | None = None) -> None:
+    def __init__(
+        self,
+        llm: LLMProvider,
+        web_search_tool: Tool | None = None,
+        output_dir: str | pathlib.Path | None = None,
+        model: str | None = None,
+    ) -> None:
         settings = get_settings()
         self.llm = llm
+        self.web_search_tool = web_search_tool
         self.output_dir = pathlib.Path(output_dir or settings.REPORTS_DIR)
         self.num_sections = settings.REPORT_SECTIONS
         self.bullets_per_section = settings.REPORT_BULLETS_PER_SECTION
+        # Report generation is a one-off, latency-tolerant request (unlike
+        # interactive chat), so it's worth spending a bigger/slower local
+        # model here for noticeably richer output. Empty = use the LLM
+        # provider's own default model.
+        self.model = model if model is not None else settings.REPORT_LLM_MODEL or None
 
     async def validate_input(self, input: dict[str, Any]) -> list[str]:
         errors = []
@@ -77,8 +90,9 @@ class ReportTool(Tool):
         fmt = input.get("format", "both")
 
         start = time.monotonic()
+        research = await self._research(topic)
         try:
-            outline = await self._generate_outline(topic)
+            outline = await self._generate_outline(topic, research)
         except Exception as exc:
             return ToolResult.fail(f"Failed to generate report outline: {exc}")
 
@@ -105,8 +119,28 @@ class ReportTool(Tool):
             duration_ms=duration_ms,
         )
 
-    async def _generate_outline(self, topic: str) -> dict[str, Any]:
-        prompt = f"""다음 주제로 보고서/발표자료 개요를 작성하세요: "{topic}"
+    async def _research(self, topic: str) -> str:
+        """Best-effort web research to ground the outline. Never fails the
+        whole report — if search is unavailable or errors, falls back to
+        the LLM's own knowledge (logged, not raised)."""
+        if self.web_search_tool is None:
+            return ""
+        try:
+            result = await self.web_search_tool.execute({"query": topic})
+        except Exception:
+            return ""
+        return str(result.output) if result.success else ""
+
+    async def _generate_outline(self, topic: str, research: str = "") -> dict[str, Any]:
+        research_block = (
+            "\n\n다음은 이 주제로 검색한 웹 검색 결과입니다. 주제와 실제로 관련된 내용만 "
+            "사실 관계·최신 동향 파악에 참고하고, 주제와 무관하거나 엉뚱한 내용(예: 검색어의 "
+            "일부 단어만 우연히 겹치는 뉴스)은 완전히 무시하세요. 관련 있는 내용이 없다면 "
+            f"검색 결과를 참고하지 말고 당신의 기존 지식으로만 작성하세요:\n{research}"
+            if research
+            else ""
+        )
+        prompt = f"""다음 주제로 보고서/발표자료 개요를 작성하세요: "{topic}"{research_block}
 
 {self.num_sections}개의 섹션으로 구성하고, 각 섹션마다 {self.bullets_per_section}개의 핵심 bullet point를 작성하세요.
 반드시 한국어로 작성하고, 아래 JSON 형식으로만 응답하세요:
@@ -118,6 +152,7 @@ class ReportTool(Tool):
                 {"role": "system", "content": "You are a report/presentation outline generator. Respond with JSON only."},
                 {"role": "user", "content": prompt},
             ],
+            model=self.model,
             response_format="json",
         )
         data = json.loads(completion.content)
