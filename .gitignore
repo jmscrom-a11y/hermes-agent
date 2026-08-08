@@ -17,3 +17,7 @@ venv/
 .vscode/
 .idea/
 .env
+.aider*
+
+# Local model weights (large binaries, never commit)
+models/
