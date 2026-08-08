@@ -92,6 +92,17 @@ class HermesSettings(BaseSettings):
     # ── RAG ───────────────────────────────────────────────────────
     RAG_EMBEDDING_MODEL: str = "mxbai-embed-large"
 
+    # ── Claude Code Tool ──────────────────────────────────────────
+    HERMES_WORKSPACE: str = "."
+    CLAUDE_CODE_BIN: str = "claude"
+    CLAUDE_CODE_PERMISSION_MODE: str = "acceptEdits"
+    CLAUDE_CODE_TIMEOUT: int = 600
+    # Ambient shells on this machine export a placeholder ANTHROPIC_API_KEY
+    # (used for OpenAI-compatible Ollama endpoints) that shadows normal
+    # `claude` CLI login and breaks headless calls with 401s. Strip it by
+    # default; set to False if you intentionally want API-key auth.
+    CLAUDE_CODE_UNSET_API_KEY: bool = True
+
     # ── Safety ────────────────────────────────────────────────────
     SAFETY_ENABLED: bool = True
     SAFETY_ALLOWED_FILE_DIRS: List[str] = Field(
