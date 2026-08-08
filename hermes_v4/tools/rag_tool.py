@@ -56,6 +56,14 @@ class RAGTool(Tool):
             errors.append("'question' is required and must be a non-empty string")
         return errors
 
+    def invalidate_cache(self) -> None:
+        """Force the next execute() call to reload the pipeline from disk.
+
+        Call this after the FAISS index or data/docs contents change (e.g.
+        a new document was uploaded and the index was rebuilt).
+        """
+        self._pipeline = None
+
     async def _get_pipeline(self):
         if self._pipeline is not None:
             return self._pipeline

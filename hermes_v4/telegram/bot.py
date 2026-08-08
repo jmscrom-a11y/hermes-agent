@@ -8,7 +8,9 @@ to a direct conversational LLM reply so the bot stays responsive.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import pathlib
 
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
@@ -18,9 +20,12 @@ from hermes_v4.core.base import ToolRegistry
 from hermes_v4.core.context import ExecutionContext
 from hermes_v4.llm.provider import LLMProvider
 from hermes_v4.planner.planner import Planner
+from hermes_v4.tools.rag_tool import RAGTool
 from hermes_v4.workflow.engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
+
+_SUPPORTED_DOC_SUFFIXES = {".pdf", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".py"}
 
 # Telegram's hard limit is 4096 chars per message; leave margin for
 # multi-byte counting differences.
@@ -128,6 +133,56 @@ def make_message_handler(
     return handle_message
 
 
+def _rebuild_rag_index_sync(docs_dir: pathlib.Path, index_dir: str, embedding_model: str | None) -> None:
+    from app.rag.loader import collect_files
+    from app.rag.pipeline import build_index
+
+    paths = [str(p) for p in collect_files([str(docs_dir)])]
+    build_index(paths=paths, index_dir=index_dir, embedding_model=embedding_model)
+
+
+def make_document_handler(docs_dir, index_dir: str, embedding_model: str | None, allowed_user_ids: list[str], rag_tool=None):
+    docs_dir = pathlib.Path(docs_dir)
+
+    async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message or not update.message.document:
+            return
+        if not _is_authorized(update, allowed_user_ids):
+            await update.message.reply_text("unauthorized")
+            return
+
+        doc = update.message.document
+        file_name = doc.file_name or f"upload_{doc.file_unique_id}"
+        suffix = pathlib.Path(file_name).suffix.lower()
+        if suffix not in _SUPPORTED_DOC_SUFFIXES:
+            await update.message.reply_text(
+                f"지원하지 않는 파일 형식입니다: {suffix or '(확장자 없음)'} "
+                f"(지원: {', '.join(sorted(_SUPPORTED_DOC_SUFFIXES))})"
+            )
+            return
+
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        dest = docs_dir / file_name
+        tg_file = await doc.get_file()
+        await tg_file.download_to_drive(str(dest))
+
+        await update.message.reply_text(f"'{file_name}' 저장 완료. 인덱스를 다시 만드는 중...")
+
+        try:
+            await asyncio.to_thread(_rebuild_rag_index_sync, docs_dir, index_dir, embedding_model)
+        except Exception as exc:
+            logger.exception("RAG index rebuild failed after upload of '%s'", file_name)
+            await update.message.reply_text(f"인덱스 재생성 실패: {exc}")
+            return
+
+        if rag_tool is not None:
+            rag_tool.invalidate_cache()
+
+        await update.message.reply_text(f"'{file_name}' 인덱스 반영 완료. 이제 이 문서에 대해 질문할 수 있어요.")
+
+    return handle_document
+
+
 def build_application(
     tool_registry: ToolRegistry,
     llm: LLMProvider,
@@ -151,6 +206,18 @@ def build_application(
             make_message_handler(
                 planner, engine, llm, allowed_user_ids, memory=memory,
                 history_turns=settings.CONVERSATION_HISTORY_TURNS,
+            ),
+        )
+    )
+    application.add_handler(
+        MessageHandler(
+            filters.Document.ALL,
+            make_document_handler(
+                RAGTool._default_docs_dir(),
+                settings.RAG_INDEX_DIR,
+                settings.RAG_EMBEDDING_MODEL,
+                allowed_user_ids,
+                rag_tool=tool_registry.get_tool("rag"),
             ),
         )
     )
