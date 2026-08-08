@@ -56,12 +56,14 @@ class ReportTool(Tool):
         self,
         llm: LLMProvider,
         web_search_tool: Tool | None = None,
+        claude_code_tool: Tool | None = None,
         output_dir: str | pathlib.Path | None = None,
         model: str | None = None,
     ) -> None:
         settings = get_settings()
         self.llm = llm
         self.web_search_tool = web_search_tool
+        self.claude_code_tool = claude_code_tool
         self.output_dir = pathlib.Path(output_dir or settings.REPORTS_DIR)
         self.num_sections = settings.REPORT_SECTIONS
         self.bullets_per_section = settings.REPORT_BULLETS_PER_SECTION
@@ -101,7 +103,10 @@ class ReportTool(Tool):
         file_paths = []
         try:
             if fmt in ("pptx", "both"):
-                file_paths.append(self._build_pptx(outline, slug))
+                if self.claude_code_tool is not None:
+                    file_paths.append(await self._build_pptx_via_claude_code(outline, slug))
+                else:
+                    file_paths.append(self._build_pptx(outline, slug))
             if fmt in ("pdf", "both"):
                 file_paths.append(self._build_pdf(outline, slug))
         except Exception as exc:
@@ -159,6 +164,42 @@ class ReportTool(Tool):
         if not isinstance(data, dict) or "sections" not in data:
             raise ValueError(f"LLM returned malformed outline: {completion.content[:200]}")
         return data
+
+    async def _build_pptx_via_claude_code(self, outline: dict[str, Any], slug: str) -> pathlib.Path:
+        """Delegates slide design to Claude Code — it writes and runs its
+        own python-pptx script, so it can apply real design judgement
+        (color theme, varied layouts, typographic hierarchy) instead of
+        the fixed bullet-list template in _build_pptx(). Falls back to
+        that template if Claude Code fails for any reason, so a network
+        hiccup or auth issue never fails the whole report.
+        """
+        dest = self.output_dir / f"{slug}.pptx"
+        outline_json = json.dumps(outline, ensure_ascii=False, indent=2)
+        task = f"""python-pptx를 사용해서 아래 개요를 바탕으로 전문적이고 시각적으로 매력적인 한국어
+PowerPoint 발표자료를 만들어 '{dest}' 경로에 저장해주세요. 스크립트를 작성해서 실행하는 방식으로
+진행하세요.
+
+디자인 요구사항:
+- 타이틀 슬라이드 + 섹션별 슬라이드로 구성 (섹션당 1슬라이드)
+- 통일된 색상 테마 적용 (배경/포인트 컬러, 무채색 기본 텍스트 등 일관성 있게)
+- 단순 글머리 기호 나열이 아니라 슬라이드마다 레이아웃에 변화를 주세요 (강조 박스, 2단 구성 등 자유롭게 판단)
+- 제목/본문 폰트 크기·굵기로 정보 위계를 명확히 표현
+- 맑은 고딕 등 한글이 잘 표시되는 폰트를 지정
+- 완료 후 '{dest}'에 파일이 정상 생성됐는지 확인하세요
+
+개요:
+{outline_json}
+"""
+        try:
+            result = await self.claude_code_tool.execute(
+                {"task": task, "cwd": str(self.output_dir), "permission_mode": "acceptEdits"}
+            )
+        except Exception:
+            result = None
+
+        if result is not None and result.success and dest.exists():
+            return dest
+        return self._build_pptx(outline, slug)
 
     def _build_pptx(self, outline: dict[str, Any], slug: str) -> pathlib.Path:
         from pptx import Presentation

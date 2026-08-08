@@ -55,10 +55,17 @@ def build_tool_registry(settings, llm: LLMProvider) -> ToolRegistry:
     registry = ToolRegistry()
     for name in settings.TOOLS_ENABLED:
         if name == "generate_report":
-            # Self-researches via WebSearchTool if it's already registered
-            # (list TOOLS_ENABLED with "web_search" before "generate_report",
-            # the default order, for this to be available).
-            registry.register(ReportTool(llm, web_search_tool=registry.get_tool("web_search")))
+            # Self-researches via WebSearchTool and hands PPTX slide design
+            # to ClaudeCodeTool if either is already registered — list
+            # TOOLS_ENABLED with "web_search"/"claude_code" before
+            # "generate_report" (the default order) for these to be available.
+            registry.register(
+                ReportTool(
+                    llm,
+                    web_search_tool=registry.get_tool("web_search"),
+                    claude_code_tool=registry.get_tool("claude_code"),
+                )
+            )
             continue
         tool_cls = _AVAILABLE_TOOLS.get(name)
         if tool_cls is None:
