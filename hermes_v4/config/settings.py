@@ -79,10 +79,12 @@ class HermesSettings(BaseSettings):
     MEMORY_TASK_RETENTION_DAYS: int = 90
 
     # ── Tools ─────────────────────────────────────────────────────
+    # Names here map to Tool implementations registered in the
+    # ToolRegistry (see app/agent.py). "ollama" (LLM provider) and
+    # "telegram" (messaging interface) are wired separately, not as
+    # Tools, so they don't belong in this list.
     TOOLS_ENABLED: List[str] = Field(
-        default_factory=lambda: [
-            "ollama", "rag", "tavily", "telegram", "git", "claude_code",
-        ]
+        default_factory=lambda: ["rag", "claude_code", "tavily", "git"]
     )
 
     # ── Telegram ──────────────────────────────────────────────────

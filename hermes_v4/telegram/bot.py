@@ -96,20 +96,3 @@ def build_application(
         MessageHandler(filters.TEXT & ~filters.COMMAND, make_message_handler(planner, engine, llm, allowed_user_ids))
     )
     return application
-
-
-def main() -> None:
-    from hermes_v4.llm.ollama_provider import OllamaProvider
-    from hermes_v4.tools.claude_code_tool import ClaudeCodeTool
-    from hermes_v4.tools.rag_tool import RAGTool
-
-    registry = ToolRegistry()
-    registry.register(RAGTool())
-    registry.register(ClaudeCodeTool())
-
-    llm = OllamaProvider()
-    build_application(registry, llm).run_polling()
-
-
-if __name__ == "__main__":
-    main()
