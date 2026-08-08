@@ -11,7 +11,7 @@ import abc
 from typing import Any
 
 from hermes_v4.core.base import ToolInfo
-from hermes_v4.planner.plan import Plan, Step
+from hermes_v4.planner.plan import Action, Plan, Step
 
 
 class PlanningStrategy(abc.ABC):
