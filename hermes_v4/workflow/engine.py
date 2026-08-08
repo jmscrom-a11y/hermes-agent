@@ -21,6 +21,7 @@ from hermes_v4.core.event import (
     StepCompleted,
     StepFailed,
     StepStarted,
+    TaskSaved,
     WorkflowCompleted,
     WorkflowStarted,
 )
@@ -42,6 +43,7 @@ class WorkflowEngine:
         max_parallel: int = 4,
         default_step_timeout: float | None = None,
         executor: Executor | None = None,
+        memory=None,
     ) -> None:
         self.tools = tool_registry
         self.event_bus = event_bus or EventBus()
@@ -50,6 +52,7 @@ class WorkflowEngine:
         self.executor = executor or Executor(
             tool_registry, event_bus=self.event_bus, default_timeout=default_step_timeout
         )
+        self.memory = memory
 
     async def run(self, plan: Plan, context: ExecutionContext | None = None) -> Plan:
         """Run every step of the plan to completion (or first blocking failure)."""
@@ -82,6 +85,14 @@ class WorkflowEngine:
 
         plan.completed_at = datetime.now()
         self.event_bus.publish(WorkflowCompleted(workflow_id=plan.id, duration_ms=duration_ms))
+
+        if self.memory is not None:
+            try:
+                await self.memory.save_task(plan)
+                self.event_bus.publish(TaskSaved(task_id=plan.id))
+            except Exception:
+                logger.exception("Failed to persist plan '%s' to memory", plan.id)
+
         return plan
 
     def _skip_blocked_nodes(self, graph: WorkflowGraph) -> None:

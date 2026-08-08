@@ -12,6 +12,7 @@ from hermes_v4.config.settings import get_settings
 from hermes_v4.core.base import ToolRegistry
 from hermes_v4.llm.ollama_provider import OllamaProvider
 from hermes_v4.llm.provider import LLMProvider
+from hermes_v4.memory.store import SqliteMemoryStore
 from hermes_v4.planner.planner import Planner
 from hermes_v4.telegram.bot import build_application
 from hermes_v4.tools.claude_code_tool import ClaudeCodeTool
@@ -60,10 +61,12 @@ def main() -> None:
         max_steps=settings.PLANNER_MAX_STEPS,
         context_window=settings.PLANNER_CONTEXT_WINDOW,
     )
+    memory = SqliteMemoryStore() if settings.MEMORY_BACKEND == "sqlite" else None
     engine = WorkflowEngine(
         registry,
         max_parallel=settings.EXECUTOR_MAX_PARALLEL,
         default_step_timeout=settings.EXECUTOR_DEFAULT_TIMEOUT,
+        memory=memory,
     )
 
     logger.info("Hermes V4 starting with tools: %s", registry.list_tools())
