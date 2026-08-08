@@ -51,11 +51,20 @@ class HermesSettings(BaseSettings):
     )
 
     # ── LLM ───────────────────────────────────────────────────────
+    # "ollama" (local, free), "openai", or "gemini" (both hosted — far
+    # more reliable at following the planner's JSON schema than a local
+    # 9B model, at the cost of needing an API key and network access).
     LLM_PROVIDER: str = "ollama"
     LLM_BASE_URL: str = "http://localhost:11434/v1"
     LLM_MODEL: str = "ornith:9b"
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 4096
+
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
 
     # ── Planner ───────────────────────────────────────────────────
     PLANNER_STRATEGY: str = "default"

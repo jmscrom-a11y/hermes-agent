@@ -37,6 +37,14 @@ _AVAILABLE_TOOLS = {
 def build_llm_provider(settings) -> LLMProvider:
     if settings.LLM_PROVIDER == "ollama":
         return OllamaProvider()
+    if settings.LLM_PROVIDER == "openai":
+        from hermes_v4.llm.openai_provider import OpenAIProvider
+
+        return OpenAIProvider()
+    if settings.LLM_PROVIDER == "gemini":
+        from hermes_v4.llm.gemini_provider import GeminiProvider
+
+        return GeminiProvider()
     raise ValueError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER!r}")
 
 
