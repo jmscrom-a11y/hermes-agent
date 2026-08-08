@@ -64,9 +64,15 @@ def make_message_handler(planner: Planner, engine: WorkflowEngine, llm: LLMProvi
         try:
             plan = await planner.plan(question, exec_context)
             plan = await engine.run(plan, exec_context)
-            answer = _final_answer(plan) if plan.is_complete else None
+            # Use whatever the plan produced even if a later step failed —
+            # e.g. a search step can succeed and a redundant "report" step
+            # can fail; discarding the search result in that case would
+            # throw away a real answer in favor of a tool-less chat reply.
+            answer = _final_answer(plan)
             if answer is None:
                 raise RuntimeError(plan.error or "plan produced no answer")
+            if not plan.is_complete:
+                logger.warning("Plan '%s' partially failed (%s); replying with partial result", plan.id, plan.error)
         except Exception as exc:
             logger.warning("Planned execution failed (%s), falling back to direct reply", exc)
             answer = await _fallback_reply(llm, question)
