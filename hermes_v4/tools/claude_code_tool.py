@@ -34,6 +34,7 @@ class ClaudeCodeTool(Tool):
             "task": {"type": "string"},
             "cwd": {"type": "string"},
             "permission_mode": {"type": "string"},
+            "allowed_tools": {"type": "array", "items": {"type": "string"}},
         },
         "required": ["task"],
     }
@@ -91,6 +92,7 @@ class ClaudeCodeTool(Tool):
         task = str(input["task"]).strip()
         cwd = pathlib.Path(input["cwd"]).resolve() if input.get("cwd") else self._workspace
         permission_mode = input.get("permission_mode") or self._permission_mode
+        allowed_tools = input.get("allowed_tools")
 
         cmd = [
             self._claude_bin,
@@ -98,6 +100,8 @@ class ClaudeCodeTool(Tool):
             "--output-format", "json",
             "--permission-mode", permission_mode,
         ]
+        if allowed_tools:
+            cmd += ["--allowed-tools", *allowed_tools]
 
         start = time.monotonic()
         try:

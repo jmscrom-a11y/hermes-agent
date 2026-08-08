@@ -8,7 +8,9 @@ them as document attachments.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import pathlib
 import re
 import time
@@ -17,6 +19,8 @@ from typing import Any
 from hermes_v4.config.settings import get_settings
 from hermes_v4.core.base import Tool, ToolResult
 from hermes_v4.llm.provider import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 _VALID_FORMATS = {"pptx", "pdf", "both"}
 
@@ -190,15 +194,50 @@ PowerPoint 발표자료를 만들어 '{dest}' 경로에 저장해주세요. 스�
 개요:
 {outline_json}
 """
+        call_start = time.monotonic()
         try:
             result = await self.claude_code_tool.execute(
-                {"task": task, "cwd": str(self.output_dir), "permission_mode": "acceptEdits"}
+                {
+                    "task": task,
+                    "cwd": str(self.output_dir),
+                    "permission_mode": "acceptEdits",
+                    # acceptEdits only auto-approves Write/Edit — running the
+                    # script it writes needs Bash, which still prompts (and
+                    # silently hangs/denies since headless mode has no TTY
+                    # to approve it). Scope the pre-approval to python3 only.
+                    "allowed_tools": ["Bash(python3 *)"],
+                }
             )
         except Exception:
+            logger.exception("Claude Code PPTX design raised an exception; falling back to template")
             result = None
+        logger.info(
+            "Claude Code PPTX call returned after %.1fs, dest.exists()=%s, dir=%s",
+            time.monotonic() - call_start, dest.exists(), sorted(p.name for p in self.output_dir.iterdir()),
+        )
 
-        if result is not None and result.success and dest.exists():
-            return dest
+        if result is not None and result.success:
+            # The claude subprocess reporting done doesn't guarantee the
+            # file it wrote is visible to us yet — give it a window rather
+            # than immediately declaring failure and overwriting a file
+            # that's about to land.
+            for _ in range(40):
+                if dest.exists():
+                    return dest
+                await asyncio.sleep(1)
+            logger.warning(
+                "Still not visible after waiting; dir now=%s",
+                sorted(p.name for p in self.output_dir.iterdir()),
+            )
+
+        if result is None:
+            logger.warning("Claude Code PPTX design unavailable; falling back to template")
+        elif not result.success:
+            logger.warning("Claude Code PPTX design failed (%s); falling back to template", result.error)
+        else:
+            logger.warning(
+                "Claude Code reported success but '%s' was not created; falling back to template", dest
+            )
         return self._build_pptx(outline, slug)
 
     def _build_pptx(self, outline: dict[str, Any], slug: str) -> pathlib.Path:
