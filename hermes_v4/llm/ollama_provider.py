@@ -39,6 +39,7 @@ class OllamaProvider(LLMProvider):
         base_url: str | None = None,
         model: str | None = None,
         timeout: float = 600.0,
+        think: bool | None = None,
     ) -> None:
         settings = get_settings()
         self.host = _normalize_ollama_host(base_url or settings.LLM_BASE_URL)
@@ -46,6 +47,11 @@ class OllamaProvider(LLMProvider):
         self.default_temperature = settings.LLM_TEMPERATURE
         self.default_max_tokens = settings.LLM_MAX_TOKENS
         self.timeout = timeout
+        # Thinking-capable models (e.g. this project's ornith:9b) spend the
+        # bulk of their latency on a hidden reasoning pass by default — 22.9s
+        # vs 0.7s for the same prompt, measured with think on vs off. Off by
+        # default; only worth enabling for genuinely hard reasoning tasks.
+        self.think = think if think is not None else settings.LLM_THINKING_ENABLED
 
     async def generate(
         self,
@@ -68,6 +74,7 @@ class OllamaProvider(LLMProvider):
             "messages": messages,
             "stream": False,
             "options": options,
+            "think": self.think,
         }
         if response_format == "json":
             payload["format"] = "json"

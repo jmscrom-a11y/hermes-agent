@@ -59,6 +59,11 @@ class HermesSettings(BaseSettings):
     LLM_MODEL: str = "ornith:9b"
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 4096
+    # ornith:9b (and other thinking-capable Ollama models) run a hidden
+    # reasoning pass before answering unless this is off — measured 22.9s
+    # vs 0.7s for the same prompt. Off by default for chat/tool-call
+    # latency; flip on only if you need it for genuinely hard reasoning.
+    LLM_THINKING_ENABLED: bool = False
 
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
