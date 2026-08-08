@@ -8,10 +8,24 @@ to decide which tools to use based on the request and available tools.
 from __future__ import annotations
 
 import abc
+import json
 from typing import Any
 
 from hermes_v4.core.base import ToolInfo
 from hermes_v4.planner.plan import Action, Plan, Step
+
+
+def format_tool_list(tools: list[ToolInfo]) -> str:
+    """Render tools with their input_schema so the LLM uses the right
+    parameter names in each action's "input" — without this, a small
+    model will guess plausible-but-wrong keys (e.g. "query" instead of
+    "question") and every action silently fails validation.
+    """
+    lines = []
+    for t in tools:
+        schema = json.dumps(t.input_schema, ensure_ascii=False) if t.input_schema else "{}"
+        lines.append(f"- {t.name}: {t.description}\n  input schema: {schema}")
+    return "\n".join(lines)
 
 
 class PlanningStrategy(abc.ABC):
@@ -101,7 +115,7 @@ Respond with a JSON plan:
         tools: list[ToolInfo],
         context: dict[str, Any],
     ) -> str:
-        tool_list = "\n".join(f"- {t.name}: {t.description}" for t in tools)
+        tool_list = format_tool_list(tools)
         prompt = self.SYSTEM_PROMPT.format(tool_list=tool_list)
         return f"{prompt}\n\nUser request: {request}"
 
@@ -183,7 +197,7 @@ Respond with a JSON plan:
         tools: list[ToolInfo],
         context: dict[str, Any],
     ) -> str:
-        tool_list = "\n".join(f"- {t.name}: {t.description}" for t in tools)
+        tool_list = format_tool_list(tools)
         prompt = self.SYSTEM_PROMPT.format(tool_list=tool_list)
         return f"{prompt}\n\nUser request: {request}"
 
@@ -255,7 +269,7 @@ Respond with a JSON step:
         tools: list[ToolInfo],
         context: dict[str, Any],
     ) -> str:
-        tool_list = "\n".join(f"- {t.name}: {t.description}" for t in tools)
+        tool_list = format_tool_list(tools)
         previous_results = context.get("previous_results", [])
         results_text = ""
         if previous_results:
