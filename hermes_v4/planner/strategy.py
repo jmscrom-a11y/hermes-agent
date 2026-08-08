@@ -28,6 +28,19 @@ def format_tool_list(tools: list[ToolInfo]) -> str:
     return "\n".join(lines)
 
 
+def format_history(context: dict[str, Any]) -> str:
+    """Render recent conversation turns (if any) for the LLM, so follow-up
+    requests like "그거 좀 더 설명해줘" can be understood without the user
+    repeating themselves. Absent by default — only present when the caller
+    (e.g. the Telegram handler) populated context["previous_context"].
+    """
+    history = context.get("previous_context") or []
+    if not history:
+        return ""
+    lines = [f"{m.get('role', 'user')}: {m.get('content', '')}" for m in history]
+    return "\n\nRecent conversation (for context; only reference it, don't re-answer it):\n" + "\n".join(lines)
+
+
 class PlanningStrategy(abc.ABC):
     """Base class for planning strategies.
 
@@ -117,7 +130,7 @@ Respond with a JSON plan:
     ) -> str:
         tool_list = format_tool_list(tools)
         prompt = self.SYSTEM_PROMPT.format(tool_list=tool_list)
-        return f"{prompt}\n\nUser request: {request}"
+        return f"{prompt}{format_history(context)}\n\nUser request: {request}"
 
     def parse_response(self, response: str) -> Plan:
         """Parse LLM JSON response into a Plan."""
@@ -199,7 +212,7 @@ Respond with a JSON plan:
     ) -> str:
         tool_list = format_tool_list(tools)
         prompt = self.SYSTEM_PROMPT.format(tool_list=tool_list)
-        return f"{prompt}\n\nUser request: {request}"
+        return f"{prompt}{format_history(context)}\n\nUser request: {request}"
 
     def parse_response(self, response: str) -> Plan:
         import json
@@ -278,7 +291,7 @@ Respond with a JSON step:
                 for r in previous_results[-5:]
             )
         prompt = self.SYSTEM_PROMPT.format(tool_list=tool_list)
-        return f"{prompt}\n\nUser request: {request}{results_text}"
+        return f"{prompt}{format_history(context)}\n\nUser request: {request}{results_text}"
 
     def parse_response(self, response: str) -> Plan:
         import json

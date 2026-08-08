@@ -82,7 +82,7 @@ def main() -> None:
     )
 
     logger.info("Hermes V4 starting with tools: %s", registry.list_tools())
-    application = build_application(registry, llm, planner=planner, engine=engine)
+    application = build_application(registry, llm, planner=planner, engine=engine, memory=memory)
     application.run_polling()
 
 

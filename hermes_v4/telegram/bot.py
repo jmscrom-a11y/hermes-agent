@@ -76,7 +76,14 @@ async def _fallback_reply(llm: LLMProvider, question: str) -> str:
     return completion.content
 
 
-def make_message_handler(planner: Planner, engine: WorkflowEngine, llm: LLMProvider, allowed_user_ids: list[str]):
+def make_message_handler(
+    planner: Planner,
+    engine: WorkflowEngine,
+    llm: LLMProvider,
+    allowed_user_ids: list[str],
+    memory=None,
+    history_turns: int = 10,
+):
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message or not update.message.text:
             return
@@ -86,10 +93,14 @@ def make_message_handler(planner: Planner, engine: WorkflowEngine, llm: LLMProvi
 
         question = update.message.text
         user = update.effective_user
+        user_id = str(user.id) if user else "anonymous"
+
+        history = await memory.get_recent_messages(user_id, limit=history_turns) if memory else []
         exec_context = ExecutionContext(
             request_id=str(update.update_id),
-            user_id=str(user.id) if user else None,
+            user_id=user_id,
             request=question,
+            metadata={"previous_context": history},
         )
 
         try:
@@ -110,6 +121,10 @@ def make_message_handler(planner: Planner, engine: WorkflowEngine, llm: LLMProvi
 
         await _reply(update, answer)
 
+        if memory is not None:
+            await memory.save_message(user_id, "user", question)
+            await memory.save_message(user_id, "assistant", answer)
+
     return handle_message
 
 
@@ -118,6 +133,7 @@ def build_application(
     llm: LLMProvider,
     planner: Planner | None = None,
     engine: WorkflowEngine | None = None,
+    memory=None,
 ) -> Application:
     settings = get_settings()
     bot_token = settings.TELEGRAM_BOT_TOKEN or settings.BOT_TOKEN
@@ -130,6 +146,12 @@ def build_application(
 
     application = Application.builder().token(bot_token).build()
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, make_message_handler(planner, engine, llm, allowed_user_ids))
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            make_message_handler(
+                planner, engine, llm, allowed_user_ids, memory=memory,
+                history_turns=settings.CONVERSATION_HISTORY_TURNS,
+            ),
+        )
     )
     return application

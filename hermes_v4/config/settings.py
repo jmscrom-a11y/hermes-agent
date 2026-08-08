@@ -91,6 +91,9 @@ class HermesSettings(BaseSettings):
     MEMORY_SQLITE_PATH: str = "data/hermes_v4.db"
     MEMORY_REDIS_URL: str = "redis://localhost:6379/0"
     MEMORY_TASK_RETENTION_DAYS: int = 90
+    # How many recent user/assistant turns to feed back to the planner so
+    # follow-up questions ("그거 좀 더 설명해줘") work without repeating context.
+    CONVERSATION_HISTORY_TURNS: int = 10
 
     # ── Tools ─────────────────────────────────────────────────────
     # Names here map to Tool implementations registered in the

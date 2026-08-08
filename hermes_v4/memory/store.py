@@ -27,7 +27,16 @@ CREATE TABLE IF NOT EXISTS tasks (
     error TEXT,
     created_at TEXT,
     completed_at TEXT
-)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_user_created ON messages(user_id, created_at);
 """
 
 
@@ -50,7 +59,7 @@ class SqliteMemoryStore:
 
     def _init_db(self) -> None:
         with closing(self._connect()) as conn, conn:
-            conn.execute(_SCHEMA)
+            conn.executescript(_SCHEMA)
 
     def _save_task_sync(self, plan: Plan) -> None:
         with closing(self._connect()) as conn, conn:
@@ -96,13 +105,38 @@ class SqliteMemoryStore:
         cutoff = (datetime.now() - timedelta(days=self.retention_days)).isoformat()
         with closing(self._connect()) as conn, conn:
             cursor = conn.execute("DELETE FROM tasks WHERE created_at < ?", (cutoff,))
+            conn.execute("DELETE FROM messages WHERE created_at < ?", (cutoff,))
             return cursor.rowcount
 
     async def prune_old_tasks(self) -> int:
-        """Delete tasks older than retention_days. Returns rows deleted."""
+        """Delete tasks (and old conversation messages) older than retention_days. Returns task rows deleted."""
         if not self.retention_days or self.retention_days <= 0:
             return 0
         return await asyncio.to_thread(self._prune_sync)
+
+    def _save_message_sync(self, user_id: str, role: str, content: str) -> None:
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO messages (user_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+                (user_id, role, content, datetime.now().isoformat()),
+            )
+
+    async def save_message(self, user_id: str, role: str, content: str) -> None:
+        """Save one turn of conversation (role: 'user' or 'assistant')."""
+        await asyncio.to_thread(self._save_message_sync, user_id, role, content)
+
+    def _get_recent_messages_sync(self, user_id: str, limit: int) -> list[dict[str, Any]]:
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT role, content, created_at FROM messages "
+                "WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+            return [dict(r) for r in reversed(rows)]
+
+    async def get_recent_messages(self, user_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Return up to `limit` most recent messages for a user, oldest first."""
+        return await asyncio.to_thread(self._get_recent_messages_sync, user_id, limit)
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
