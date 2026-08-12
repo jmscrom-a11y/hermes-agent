@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import abc
 import json
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from hermes_v4.config.settings import get_settings
 from hermes_v4.core.base import ToolInfo
 from hermes_v4.planner.plan import Action, Plan, Step
 
@@ -60,6 +63,34 @@ def _parse_steps(steps_data: list[dict[str, Any]]) -> list[Step]:
             )
         )
     return steps
+
+
+_WEEKDAYS_KR = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def format_current_datetime() -> str:
+    """Render "today" for the planner, so a relative request like "내일 3시에
+    ~" or "이번 주 금요일에 ~" can be turned into an absolute ISO date for
+    schedule_reminder's "date" field — without this the LLM has no way to
+    know what day it currently is.
+    """
+    settings = get_settings()
+    now = datetime.now(ZoneInfo(settings.REMINDER_TIMEZONE))
+    weekday = _WEEKDAYS_KR[now.weekday()]
+    return f"\n\n현재 날짜/시각: {now.strftime('%Y-%m-%d %H:%M')} ({weekday}요일)"
+
+
+def format_facts(context: dict[str, Any]) -> str:
+    """Render facts the user previously asked to be remembered (see the
+    "remember" tool) so answers can draw on them without the planner ever
+    calling a "recall" tool — absent by default, only present when the
+    caller (e.g. the Telegram handler) populated context["user_facts"].
+    """
+    facts = context.get("user_facts") or []
+    if not facts:
+        return ""
+    lines = [f"- {f.get('content', '')}" for f in facts]
+    return "\n\n사용자에 대해 기억하고 있는 정보 (참고만 하고 그 자체를 답변하지 마세요):\n" + "\n".join(lines)
 
 
 def format_history(context: dict[str, Any]) -> str:
@@ -134,6 +165,28 @@ RULES:
    step is shown to the user automatically.
 5. Every action's "input" must contain exactly the parameters that tool's
    description requires — never leave a required parameter empty.
+6. Only use "generate_report" when the user explicitly asks for a file —
+   a report, PPT/slides, or PDF. A bare topic, a question about a topic, or
+   a request like "recipe 좀 알려줘"/"보내줘" is NOT a report request — use
+   "rag" or answer directly instead. When in doubt, do not call
+   "generate_report".
+7. Use "schedule_reminder" both for recurring alerts at a fixed time (e.g.
+   "매일 아침 8시에 ~") and one-time future reminders (e.g. "내일 3시에 ~",
+   "이번 주 금요일에 ~"). For a recurring reminder leave "date" empty; for a
+   one-time reminder set "date" to an ISO date (YYYY-MM-DD) computed from
+   the current date/time given below. Never include "chat_id" in its
+   "input" — that is injected automatically after planning.
+8. Only use "remember" when the user explicitly asks to be remembered
+   (e.g. "기억해줘", "앞으로 ~라고 불러줘"), not for information only
+   relevant to the current request. Never include "user_id" in its
+   "input" — that is injected automatically after planning.
+9. Use "list_reminders" when the user asks what reminders are scheduled,
+   "cancel_reminder" when they ask to cancel/remove one, and "edit_reminder"
+   when they ask to change the time/date/content of one they already set
+   (put a topic or time in "query" to identify which one; for "edit_reminder"
+   only fill "new_time"/"new_date"/"new_prompt" for the fields actually
+   changing). Never include "chat_id" in any of these — that is injected
+   automatically after planning.
 
 Available tools:
 {tool_list}
@@ -172,7 +225,10 @@ Respond with a JSON plan:
     ) -> str:
         tool_list = format_tool_list(tools)
         prompt = self.SYSTEM_PROMPT.format(tool_list=tool_list)
-        return f"{prompt}{format_history(context)}\n\nUser request: {request}"
+        return (
+            f"{prompt}{format_current_datetime()}{format_facts(context)}"
+            f"{format_history(context)}\n\nUser request: {request}"
+        )
 
     def parse_response(self, response: str) -> Plan:
         """Parse LLM JSON response into a Plan."""
@@ -237,7 +293,10 @@ Respond with a JSON plan:
     ) -> str:
         tool_list = format_tool_list(tools)
         prompt = self.SYSTEM_PROMPT.format(tool_list=tool_list)
-        return f"{prompt}{format_history(context)}\n\nUser request: {request}"
+        return (
+            f"{prompt}{format_current_datetime()}{format_facts(context)}"
+            f"{format_history(context)}\n\nUser request: {request}"
+        )
 
     def parse_response(self, response: str) -> Plan:
         import json
@@ -298,7 +357,10 @@ Respond with a JSON step:
                 for r in previous_results[-5:]
             )
         prompt = self.SYSTEM_PROMPT.format(tool_list=tool_list)
-        return f"{prompt}{format_history(context)}\n\nUser request: {request}{results_text}"
+        return (
+            f"{prompt}{format_current_datetime()}{format_facts(context)}"
+            f"{format_history(context)}\n\nUser request: {request}{results_text}"
+        )
 
     def parse_response(self, response: str) -> Plan:
         import json

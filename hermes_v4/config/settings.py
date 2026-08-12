@@ -64,6 +64,20 @@ class HermesSettings(BaseSettings):
     # vs 0.7s for the same prompt. Off by default for chat/tool-call
     # latency; flip on only if you need it for genuinely hard reasoning.
     LLM_THINKING_ENABLED: bool = False
+    # How long Ollama keeps the interactive chat/planning model resident in
+    # memory after a request. -1 = never unload — a finite value still lets
+    # macOS's disk cache for the weights file get evicted under memory
+    # pressure, which turned a warm ~0.2s reload into a ~20s one in testing;
+    # staying resident in VRAM sidesteps that entirely. Only applied to
+    # calls using the default chat model — REPORT_LLM_MODEL (much bigger,
+    # used for latency-tolerant one-off report generation) intentionally
+    # keeps Ollama's normal default so it doesn't stay resident unused.
+    LLM_CHAT_KEEP_ALIVE: str = "-1"
+
+    # Vision-capable model for the Telegram photo handler (Ollama only —
+    # already pulled locally, unlike a hosted vision model that'd need
+    # its own API key/route).
+    LLM_VISION_MODEL: str = "llava:latest"
 
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
@@ -75,15 +89,22 @@ class HermesSettings(BaseSettings):
     PLANNER_STRATEGY: str = "default"
     PLANNER_MAX_STEPS: int = 20
     PLANNER_CONTEXT_WINDOW: int = 8000
+    # Reuse a previously-generated plan for an identical (normalized) request
+    # instead of paying for another planning LLM call. Keyed on exact request
+    # text only — doesn't help paraphrases, but is safe since the cached plan
+    # was itself validated for that exact text. TTL bounds staleness (e.g. a
+    # cached "generate_report" plan outliving new documents in the RAG index).
+    PLANNER_CACHE_TTL_SECONDS: float = 300.0
+    PLANNER_CACHE_SIZE: int = 128
 
     # ── Executor ──────────────────────────────────────────────────
     EXECUTOR_MAX_PARALLEL: int = 4
-    # Must exceed CLAUDE_CODE_TIMEOUT (600s) — this wraps every step
+    # Must exceed CLAUDE_CODE_TIMEOUT (900s) — this wraps every step
     # including claude_code/generate_report calls, so a shorter value here
     # makes that tool's own timeout unreachable (this wrapper always fires
     # first) and asyncio.TimeoutError has no message, so a step killed by
     # it fails with a blank error.
-    EXECUTOR_DEFAULT_TIMEOUT: int = 900
+    EXECUTOR_DEFAULT_TIMEOUT: int = 1200
     EXECUTOR_RETRY_MAX_ATTEMPTS: int = 3
     EXECUTOR_RETRY_BACKOFF_FACTOR: float = 2.0
 
@@ -106,7 +127,10 @@ class HermesSettings(BaseSettings):
     # "telegram" (messaging interface) are wired separately, not as
     # Tools, so they don't belong in this list.
     TOOLS_ENABLED: List[str] = Field(
-        default_factory=lambda: ["rag", "claude_code", "web_search", "git", "generate_report"]
+        default_factory=lambda: [
+            "rag", "claude_code", "web_search", "git", "generate_report", "schedule_reminder",
+            "list_reminders", "cancel_reminder", "edit_reminder", "usage_report", "remember",
+        ]
     )
 
     # ── Report Tool ───────────────────────────────────────────────
@@ -117,24 +141,89 @@ class HermesSettings(BaseSettings):
     # interactive chat — worth spending a bigger/slower local model here
     # for richer output. Empty string = use LLM_MODEL (the chat default).
     REPORT_LLM_MODEL: str = "qwen3.6:27b"
+    # Number of distinct search angles the local model fans out into before
+    # synthesizing a research brief (background, latest news, stats,
+    # counterpoints, examples, etc.) instead of one flat search. Searches
+    # run in parallel (asyncio.gather), so this mainly costs synthesis-call
+    # tokens/time, not wall-clock search time.
+    REPORT_RESEARCH_QUERIES: int = 6
 
     # ── Telegram ──────────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_ALLOWED_USER_IDS_V4: List[str] = Field(default_factory=list)
 
     # ── RAG ───────────────────────────────────────────────────────
-    RAG_EMBEDDING_MODEL: str = "mxbai-embed-large"
+    # bge-m3: measured against this corpus, cosine similarity for a truly
+    # relevant chunk (0.59) clears an unrelated "hub" chunk (0.32-0.37) by a
+    # wide margin. mxbai-embed-large and nomic-embed-text were both measured
+    # to invert this — an unrelated chunk scored *higher* than the relevant
+    # one (e.g. mxbai: 0.67 relevant vs 0.79 unrelated) — because short,
+    # generic-sounding chunks sit near the embedding space's centroid and
+    # spuriously look similar to almost any query. bge-m3 is also a verified
+    # top performer on public multilingual/Korean retrieval benchmarks
+    # (MIRACL etc.), not just this one corpus.
+    RAG_EMBEDDING_MODEL: str = "bge-m3"
+    # Local Ollama OCR model used to ingest image files (.png/.jpg/.jpeg)
+    # and to fall back on scanned/image-only PDF pages where PyMuPDF's
+    # text-layer extraction comes back empty (see app/rag/loader.py).
+    RAG_OCR_ENABLED: bool = True
+    RAG_OCR_MODEL: str = "frob/unlimited-ocr:q8_0"
+    # A PDF page with fewer extracted characters than this is treated as
+    # scanned/image-only and re-OCR'd from a rendered page image.
+    RAG_OCR_MIN_TEXT_CHARS: int = 20
+
+    # ── Voice (Speech-to-Text) ───────────────────────────────────────
+    # faster-whisper model size — "base" (~150MB, fast) is the default;
+    # "small"/"medium" trade speed for accuracy. Runs locally on CPU, no
+    # API key, consistent with this project's local-first LLM setup.
+    STT_MODEL: str = "base"
+    STT_LANGUAGE: str = "ko"
+
+    # ── Voice (Text-to-Speech) ───────────────────────────────────────
+    # macOS `say` voice name (empty = system default). Only used for
+    # voice-in -> voice-out replies; text messages stay text-only.
+    TTS_VOICE: str = ""
+    TTS_MAX_CHARS: int = 500
+
+    # ── Reminders ─────────────────────────────────────────────────
+    # JobQueue itself is in-memory only (forgotten on restart); reminders
+    # are also written here so main() can re-register them on startup.
+    REMINDERS_STORE_PATH: str = "data/reminders.json"
+    # JobQueue.run_daily() treats a tzinfo-naive time as UTC, not local
+    # time — without this, a "매일 아침 6시" reminder silently fires at
+    # 06:00 UTC (15:00 KST) instead of 6am local time.
+    REMINDER_TIMEZONE: str = "Asia/Seoul"
+    # A reminder whose prompt mentions "날씨" gets real web-search-grounded
+    # weather for each of these locations instead of an LLM guess with no
+    # location context (see ReminderTool._fire) — every other reminder
+    # topic is unaffected.
+    WEATHER_LOCATIONS: List[str] = Field(default_factory=lambda: ["서울", "광명"])
+    # A reminder whose prompt is just a bare "브리핑"/"뉴스" (no specific
+    # subject) fans out into these topics for web-search grounding instead
+    # of searching that uninformative literal text (see
+    # ReminderTool._generate_briefing).
+    BRIEFING_TOPICS: List[str] = Field(default_factory=lambda: ["주요 뉴스", "경제 뉴스", "IT/테크 뉴스"])
 
     # ── Claude Code Tool ──────────────────────────────────────────
     HERMES_WORKSPACE: str = "."
     CLAUDE_CODE_BIN: str = "claude"
     CLAUDE_CODE_PERMISSION_MODE: str = "acceptEdits"
-    CLAUDE_CODE_TIMEOUT: int = 600
+    # PPTX design calls (purpose="pptx_design") routinely ran right up
+    # against the old 600s ceiling and got killed mid-QA/revision pass —
+    # usage logs show pptx_design averaging ~64 turns (up to 136), and the
+    # two most recent design calls both hit exactly 600.0s and were killed
+    # before Claude Code could act on its own QA findings (font/chart-size
+    # fixes). 900s gives it room to actually finish that loop.
+    CLAUDE_CODE_TIMEOUT: int = 900
     # Ambient shells on this machine export a placeholder ANTHROPIC_API_KEY
     # (used for OpenAI-compatible Ollama endpoints) that shadows normal
     # `claude` CLI login and breaks headless calls with 401s. Strip it by
     # default; set to False if you intentionally want API-key auth.
     CLAUDE_CODE_UNSET_API_KEY: bool = True
+    # Every successful claude_code call's cost/turn count is appended here
+    # — claude -p reports total_cost_usd per call but nothing otherwise
+    # tracks it, so spend is invisible without this.
+    CLAUDE_CODE_USAGE_LOG_PATH: str = "data/claude_code_usage.jsonl"
 
     # ── Git Tool ──────────────────────────────────────────────────
     # push/reset/checkout/rebase/clean are deliberately excluded — those

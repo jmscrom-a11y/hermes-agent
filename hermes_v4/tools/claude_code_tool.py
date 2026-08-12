@@ -16,6 +16,7 @@ from typing import Any
 
 from hermes_v4.config.settings import get_settings
 from hermes_v4.core.base import Tool, ToolResult
+from hermes_v4.usage import record_usage
 
 VALID_PERMISSION_MODES = {"acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
 
@@ -35,6 +36,7 @@ class ClaudeCodeTool(Tool):
             "cwd": {"type": "string"},
             "permission_mode": {"type": "string"},
             "allowed_tools": {"type": "array", "items": {"type": "string"}},
+            "purpose": {"type": "string", "description": "Short tag for usage tracking, e.g. 'pptx_design'"},
         },
         "required": ["task"],
     }
@@ -140,6 +142,13 @@ class ClaudeCodeTool(Tool):
                     "permission_denials": payload.get("permission_denials"),
                 },
             )
+
+        record_usage(
+            payload.get("total_cost_usd"),
+            payload.get("num_turns"),
+            payload.get("session_id"),
+            purpose=str(input.get("purpose") or ""),
+        )
 
         return ToolResult(
             success=True,

@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_user_created ON messages(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS facts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_facts_user_created ON facts(user_id, created_at);
 """
 
 
@@ -137,6 +145,35 @@ class SqliteMemoryStore:
     async def get_recent_messages(self, user_id: str, limit: int = 10) -> list[dict[str, Any]]:
         """Return up to `limit` most recent messages for a user, oldest first."""
         return await asyncio.to_thread(self._get_recent_messages_sync, user_id, limit)
+
+    def _save_fact_sync(self, user_id: str, content: str) -> None:
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO facts (user_id, content, created_at) VALUES (?, ?, ?)",
+                (user_id, content, datetime.now().isoformat()),
+            )
+
+    async def save_fact(self, user_id: str, content: str) -> None:
+        """Save a fact/preference about the user (see the "remember" tool).
+
+        Unlike conversation messages, facts are never pruned by
+        prune_old_tasks() — they're meant to persist indefinitely, not
+        decay like short-term chat history.
+        """
+        await asyncio.to_thread(self._save_fact_sync, user_id, content)
+
+    def _get_facts_sync(self, user_id: str, limit: int) -> list[dict[str, Any]]:
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT content, created_at FROM facts "
+                "WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+            return [dict(r) for r in reversed(rows)]
+
+    async def get_facts(self, user_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Return up to `limit` most recently remembered facts, oldest first."""
+        return await asyncio.to_thread(self._get_facts_sync, user_id, limit)
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:

@@ -32,6 +32,7 @@ class OpenAIProvider(LLMProvider):
         temperature: float | None = None,
         max_tokens: int | None = None,
         response_format: str | None = None,
+        num_ctx: int | None = None,  # Ollama-only; OpenAI sizes context server-side.
     ) -> ChatCompletion:
         chat_model = model or self.default_model
         extra: dict = {}

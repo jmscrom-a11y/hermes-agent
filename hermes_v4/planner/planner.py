@@ -12,8 +12,12 @@ Key principle: The planner NEVER hardcodes tool routing. It always:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
+import time
+import uuid
+from collections import OrderedDict
 from typing import Any
 
 from hermes_v4.core.base import ToolInfo, ToolRegistry
@@ -57,6 +61,8 @@ class Planner:
         max_steps: int = 20,
         context_window: int = 8000,
         event_bus: EventBus | None = None,
+        cache_ttl_seconds: float = 300.0,
+        cache_size: int = 128,
     ) -> None:
         self.llm = llm_provider
         self.tools = tool_registry
@@ -64,6 +70,15 @@ class Planner:
         self.max_steps = max_steps
         self.context_window = context_window
         self.event_bus = event_bus or EventBus()
+        # Cache of validated plans keyed on the exact (normalized) request
+        # text, so a repeated identical request skips the planning LLM call
+        # entirely. Only matches literal repeats, not paraphrases — but that's
+        # the safe case: the cached plan was already validated for that exact
+        # text. TTL bounds staleness (e.g. a stale plan outliving a RAG index
+        # update); size bound is a simple LRU via OrderedDict.
+        self._cache_ttl = cache_ttl_seconds
+        self._cache_size = cache_size
+        self._plan_cache: OrderedDict[str, tuple[float, Plan]] = OrderedDict()
 
     async def plan(self, request: str, context: ExecutionContext | None = None) -> Plan:
         """Generate an execution plan for the given request.
@@ -87,6 +102,13 @@ class Planner:
             PlanGenerationError: If LLM fails to produce a valid plan.
             PlanValidationError: If the generated plan fails validation.
         """
+        cache_key = request.strip().lower()
+        cached_plan = self._get_cached_plan(cache_key)
+        if cached_plan is not None:
+            logger.info("Plan cache hit for request; skipping planning LLM call")
+            self.event_bus.publish(PlanCreated(plan_id=cached_plan.id, request=request))
+            return cached_plan
+
         # 1. Gather available tools
         available_tools = self.tools.get_available_tools()
 
@@ -110,7 +132,43 @@ class Planner:
 
         plan.status = PlanStatus.PENDING
         plan.request = request
+        self._cache_plan(cache_key, plan)
         return plan
+
+    def _get_cached_plan(self, key: str) -> Plan | None:
+        entry = self._plan_cache.get(key)
+        if entry is None:
+            return None
+        cached_at, plan = entry
+        if time.monotonic() - cached_at > self._cache_ttl:
+            del self._plan_cache[key]
+            return None
+        self._plan_cache.move_to_end(key)
+        return self._clone_plan(plan)
+
+    def _cache_plan(self, key: str, plan: Plan) -> None:
+        self._plan_cache[key] = (time.monotonic(), copy.deepcopy(plan))
+        self._plan_cache.move_to_end(key)
+        while len(self._plan_cache) > self._cache_size:
+            self._plan_cache.popitem(last=False)
+
+    @staticmethod
+    def _clone_plan(plan: Plan) -> Plan:
+        """Deep-copy a cached plan into a fresh, unexecuted instance —
+        reusing the cached Plan object directly would share mutable
+        execution state (status, context, per-step _status) across every
+        request that hits the cache.
+        """
+        clone = copy.deepcopy(plan)
+        clone.id = uuid.uuid4().hex[:8]
+        clone.status = PlanStatus.PENDING
+        clone.completed_at = None
+        clone.error = None
+        clone.context = {}
+        for step in clone.steps:
+            if hasattr(step, "_status"):
+                delattr(step, "_status")
+        return clone
 
     async def _generate_plan(self, prompt: str) -> Plan:
         """Call the LLM to generate a plan from the prompt."""
@@ -195,5 +253,6 @@ class Planner:
         return {
             "available_tools": self.tools.list_tools(),
             "previous_context": context.metadata.get("previous_context", []),
+            "user_facts": context.metadata.get("user_facts", []),
             "request": request,
         }

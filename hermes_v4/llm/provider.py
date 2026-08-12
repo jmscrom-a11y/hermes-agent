@@ -56,6 +56,7 @@ class LLMProvider(abc.ABC):
         temperature: float | None = None,
         max_tokens: int | None = None,
         response_format: str | None = None,
+        num_ctx: int | None = None,
     ) -> ChatCompletion:
         """Generate a chat completion.
 
@@ -67,6 +68,15 @@ class LLMProvider(abc.ABC):
             response_format: If "json", instruct the provider to force
                 syntactically valid JSON output (small local models in
                 particular tend to ignore prose instructions to do this).
+            num_ctx: Ollama-only context window override (ignored by
+                hosted providers, which size context server-side). Ollama
+                silently runs with a small default context window (~2-4K
+                tokens) regardless of what the model itself supports —
+                callers sending a large prompt and/or expecting a large
+                response (e.g. summarizing/translating a multi-thousand-
+                character document chunk) must raise this explicitly or
+                risk the response being cut off mid-generation with no
+                error, only a truncated result.
 
         Returns:
             ChatCompletion with the model's response.

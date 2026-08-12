@@ -55,6 +55,7 @@ class GeminiProvider(LLMProvider):
         temperature: float | None = None,
         max_tokens: int | None = None,
         response_format: str | None = None,
+        num_ctx: int | None = None,  # Ollama-only; Gemini sizes context server-side.
     ) -> ChatCompletion:
         chat_model = model or self.default_model
         generation_config: dict[str, Any] = {
