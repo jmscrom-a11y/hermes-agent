@@ -21,7 +21,8 @@ class RAGTool(Tool):
 
     name = "rag"
     description = (
-        "저장된 문서(PDF, 마크다운 등)에서 관련 내용을 검색해 질문에 답변합니다. "
+        "저장된 문서(PDF, 마크다운, DOCX, PPTX, 이미지 등)에서 관련 내용을 검색해 질문에 답변합니다. "
+        "이미지 파일과 스캔 PDF는 OCR로 텍스트를 추출해 인덱싱합니다. "
         "문서 내용, 요약, 특정 자료에 대한 질문에 사용하세요."
     )
     input_schema = {
@@ -41,6 +42,7 @@ class RAGTool(Tool):
         settings = get_settings()
         self._index_dir = settings.RAG_INDEX_DIR
         self._top_k = settings.RAG_TOP_K
+        self._embedding_model = settings.RAG_EMBEDDING_MODEL
         self._docs_dir = pathlib.Path(docs_dir) if docs_dir else self._default_docs_dir()
         self._pipeline = None
         self._load_lock = asyncio.Lock()
@@ -73,15 +75,13 @@ class RAGTool(Tool):
         return self._pipeline
 
     def _load_pipeline_sync(self):
-        from app.rag.loader import collect_files
         from app.rag.pipeline import load_pipeline
 
-        doc_paths = [str(p) for p in collect_files([str(self._docs_dir)])]
         return load_pipeline(
             self._index_dir,
+            embedding_model=self._embedding_model,
             k=self._top_k,
             hybrid=True,
-            documents=doc_paths,
         )
 
     async def execute(self, input: dict[str, Any]) -> ToolResult:

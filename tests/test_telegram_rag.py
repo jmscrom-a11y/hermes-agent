@@ -1,6 +1,7 @@
 import unittest
 
 from app.telegram.bot import answer_question
+from app.telegram.handlers.chat import Intent
 
 
 class FakePromptBuilder:
@@ -36,7 +37,7 @@ class TelegramRAGTest(unittest.TestCase):
             prompts.append(prompt)
             return "rag answer"
 
-        result = answer_question("hello", pipeline=pipeline, llm=fake_llm)
+        result = answer_question("hello", intent=Intent.RAG, pipeline=pipeline, llm=fake_llm)
 
         self.assertEqual("rag answer", result)
         self.assertEqual("hello", pipeline.last_question)
@@ -50,7 +51,7 @@ class TelegramRAGTest(unittest.TestCase):
             prompts.append(prompt)
             return "llm answer"
 
-        result = answer_question("hello", pipeline=pipeline, llm=fake_llm)
+        result = answer_question("hello", intent=Intent.RAG, pipeline=pipeline, llm=fake_llm)
 
         self.assertEqual("llm answer", result)
         self.assertEqual(["hello"], prompts)
@@ -62,7 +63,7 @@ class TelegramRAGTest(unittest.TestCase):
             prompts.append(prompt)
             return "llm answer"
 
-        result = answer_question("hello", pipeline=False, llm=fake_llm)
+        result = answer_question("hello", intent=Intent.RAG, pipeline=False, llm=fake_llm)
 
         self.assertEqual("llm answer", result)
         self.assertEqual(["hello"], prompts)

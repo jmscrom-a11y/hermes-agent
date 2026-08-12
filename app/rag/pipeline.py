@@ -1,18 +1,27 @@
+import os
 import pathlib
 from dataclasses import dataclass
 
 from app.llm.agent import ask_llm
 from app.rag.chunker import split_documents
-from app.rag.embeddings import create_embeddings
+from app.rag.embeddings import DEFAULT_EMBEDDING_MODEL, create_embeddings
 from app.rag.loader import load_documents
 from app.rag.retriever import (
     BM25Retriever,
+    DEFAULT_SCORE_THRESHOLD,
     HybridRetriever,
+    candidate_pool_size,
     create_hybrid_retriever,
     create_retriever,
     retrieve_documents,
 )
-from app.rag.vectordb import create_vector_db, load_vector_db, save_vector_db
+from app.rag.vectordb import (
+    add_documents_to_vector_db,
+    create_vector_db,
+    documents_from_vector_db,
+    load_vector_db,
+    save_vector_db,
+)
 
 
 DEFAULT_RAG_TEMPLATE = """당신은 Hermes Agent의 RAG 응답 엔진입니다.
@@ -91,12 +100,12 @@ class PromptBuilder:
 
 
 class RAGPipeline:
-    def __init__(self, retriever, llm=ask_llm, prompt_builder=None, hybrid=False, documents=None):
+    def __init__(self, retriever, llm=ask_llm, prompt_builder=None, hybrid=False, documents=None, embedding_model=None):
         self.llm = llm
         self.prompt_builder = prompt_builder or PromptBuilder()
 
         if hybrid and documents is not None:
-            self.retriever = create_hybrid_retriever(retriever, documents)
+            self.retriever = create_hybrid_retriever(retriever, documents, embedding_model=embedding_model)
         else:
             self.retriever = retriever
 
@@ -129,13 +138,9 @@ class RAGPipeline:
         for doc in documents:
             metadata = getattr(doc, "metadata", {}) or {}
             source = metadata.get("source", "unknown")
-            line_range = metadata.get("line_range")
-            if line_range and isinstance(line_range, (list, tuple)) and len(line_range) == 2:
-                sources.append(f"- {source} (lines {line_range[0]}-{line_range[1]})")
-            else:
-                sources.append(f"- {source}")
+            sources.append(source)
 
-        return f"{answer}\n\nSources:\n" + "\n".join(dict.fromkeys(sources))
+        return f"{answer}\n\nSources: " + ", ".join(dict.fromkeys(sources))
 
 
 def build_index(paths, index_dir=None, embedding_model=None, chunk_size=500, chunk_overlap=150):
@@ -152,42 +157,72 @@ def build_index(paths, index_dir=None, embedding_model=None, chunk_size=500, chu
     return vector_db
 
 
-def load_pipeline(index_dir, embedding_model=None, k=4, llm=ask_llm, hybrid=False, documents=None, score_threshold=0.5):
+def add_to_index(paths, index_dir, embedding_model=None, chunk_size=500, chunk_overlap=150):
+    """Embed and add *paths* into the FAISS index at *index_dir* in place.
+
+    Unlike build_index(), this doesn't re-embed the whole data/docs corpus
+    — only the new documents — so a single-file upload stays cheap even as
+    the corpus grows. Falls back to creating a fresh index if none exists
+    yet at *index_dir*.
+    """
+    documents = load_documents(paths)
+    if not documents:
+        raise ValueError(f"No extractable content in: {paths}")
+    chunks = split_documents(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     embeddings = create_embeddings(model=embedding_model)
+
+    index_path = pathlib.Path(index_dir)
+    if (index_path / "index.faiss").exists():
+        vector_db = load_vector_db(embeddings, index_dir)
+        add_documents_to_vector_db(vector_db, chunks)
+    else:
+        vector_db = create_vector_db(chunks, embeddings)
+    save_vector_db(vector_db, index_dir)
+    return vector_db
+
+
+def load_pipeline(index_dir, embedding_model=None, k=4, llm=ask_llm, hybrid=False, score_threshold=DEFAULT_SCORE_THRESHOLD):
+    # Resolve the actual model name (mirrors create_embeddings' own fallback)
+    # so the reranker below uses the *same* model that built the vector
+    # index, instead of silently defaulting to a different one.
+    resolved_model = embedding_model or os.getenv("OLLAMA_EMBED_MODEL", DEFAULT_EMBEDDING_MODEL)
+    embeddings = create_embeddings(model=resolved_model)
     vector_db = load_vector_db(embeddings, index_dir)
     # Fetch a wider candidate pool than the final k for RRF fusion/reranking
     # to actually work with — capping the vector retriever at the final k
     # (e.g. 4) starves the fusion pool and drops correct-but-not-top-4
     # documents before they ever get a chance to be reranked.
-    retriever = create_retriever(vector_db, k=max(k * 3, 10))
-    if hybrid and documents is not None:
-        from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
-        loaded_documents = []
-        for path in documents:
-            p = pathlib.Path(path)
-            if p.suffix.lower() == ".pdf":
-                loader = PyMuPDFLoader(str(p))
-            else:
-                loader = TextLoader(str(p), encoding="utf-8")
-            loaded_documents.extend(loader.load())
-        pipeline_retriever = create_hybrid_retriever(retriever, loaded_documents, k=k, score_threshold=score_threshold)
+    retriever = create_retriever(vector_db, k=candidate_pool_size(k))
+    if hybrid:
+        # BM25's corpus comes straight from the already-loaded FAISS
+        # docstore (see documents_from_vector_db) instead of re-parsing
+        # `documents` from disk — that used to re-run PDF/OCR extraction on
+        # every pipeline load (~145s for this corpus) even though the exact
+        # same chunk text was already sitting in the index we just loaded.
+        bm25_documents = documents_from_vector_db(vector_db)
+        pipeline_retriever = create_hybrid_retriever(
+            retriever, bm25_documents, k=k, score_threshold=score_threshold, embedding_model=resolved_model
+        )
     else:
         pipeline_retriever = retriever
     return RAGPipeline(retriever=pipeline_retriever, llm=llm)
 
 
-def build_pipeline(paths, index_dir=None, embedding_model=None, k=4, llm=ask_llm, hybrid=False, score_threshold=0.5):
+def build_pipeline(paths, index_dir=None, embedding_model=None, k=4, llm=ask_llm, hybrid=False, score_threshold=DEFAULT_SCORE_THRESHOLD):
+    resolved_model = embedding_model or os.getenv("OLLAMA_EMBED_MODEL", DEFAULT_EMBEDDING_MODEL)
     docs = load_documents(paths)
     chunks = split_documents(
         docs,
         chunk_size=500,
         chunk_overlap=150,
     )
-    embeddings = create_embeddings(model=embedding_model)
+    embeddings = create_embeddings(model=resolved_model)
     vector_db = create_vector_db(chunks, embeddings)
-    retriever = create_retriever(vector_db, k=max(k * 3, 10))
+    retriever = create_retriever(vector_db, k=candidate_pool_size(k))
     if hybrid:
-        pipeline_retriever = create_hybrid_retriever(retriever, docs, k=k, score_threshold=score_threshold)
+        pipeline_retriever = create_hybrid_retriever(
+            retriever, docs, k=k, score_threshold=score_threshold, embedding_model=resolved_model
+        )
     else:
         pipeline_retriever = retriever
     return RAGPipeline(retriever=pipeline_retriever, llm=llm)

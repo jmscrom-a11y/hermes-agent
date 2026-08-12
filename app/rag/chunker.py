@@ -32,7 +32,7 @@ def _require_splitter():
     return RecursiveCharacterTextSplitter
 
 
-def create_text_splitter(chunk_size=1000, chunk_overlap=150):
+def create_text_splitter(chunk_size=500, chunk_overlap=150):
     RecursiveCharacterTextSplitter = _require_splitter()
     return RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -40,7 +40,7 @@ def create_text_splitter(chunk_size=1000, chunk_overlap=150):
     )
 
 
-def split_documents(documents, chunk_size=1000, chunk_overlap=150):
+def split_documents(documents, chunk_size=500, chunk_overlap=150):
     """문서를 청킹하고 메타데이터(chunk_id, document_id, source, line_range)를 추가.
 
     Args:

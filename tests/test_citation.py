@@ -96,14 +96,19 @@ class TokenizeTest(unittest.TestCase):
         self.assertTrue(len(tokens) > 0)
 
     def test_mixed(self):
-        tokens = _tokenize("안녕 world")
+        # "회사" (noun, NNG) rather than "안녕" (interjection, IC) — kiwi's
+        # keep-list (_KIWI_KEEP_PREFIXES) only retains content-bearing tags
+        # like nouns/verbs/foreign words, so an interjection alone would be
+        # dropped and this wouldn't actually exercise mixed-language token
+        # retention.
+        tokens = _tokenize("회사 world")
         self.assertEqual(len(tokens), 2)
 
     def test_numbers(self):
         tokens = _tokenize("version 3.14")
-        # "." is matched as a separate token by [^\s], so "3" and "14" appear
-        self.assertIn("3", tokens)
-        self.assertIn("14", tokens)
+        # kiwi tags "3.14" as a single SN (number) token instead of the
+        # naive regex fallback's "3", ".", "14" split.
+        self.assertIn("3.14", tokens)
 
 
 # ── BM25Retriever ──────────────────────────────────────────────
@@ -311,8 +316,8 @@ class FormatAnswerTest(unittest.TestCase):
         result = pipeline.answer("question")
         self.assertIn("answer", result)
         self.assertIn("Sources:", result)
-        self.assertIn("a.md (lines 0-10)", result)
-        self.assertIn("b.md (lines 11-25)", result)
+        self.assertIn("a.md", result)
+        self.assertIn("b.md", result)
 
     def test_answer_includes_sources_without_line_range(self):
         docs = [
@@ -323,7 +328,20 @@ class FormatAnswerTest(unittest.TestCase):
         pipeline = RAGPipeline(retriever=mock_retriever, llm=lambda p: "answer")
         result = pipeline.answer("question")
         self.assertIn("Sources:", result)
-        self.assertIn("- a.md", result)
+        self.assertIn("a.md", result)
+
+    def test_answer_dedupes_and_flattens_sources_to_one_line(self):
+        docs = [
+            Document(page_content="chunk1", metadata={"source": "a.md", "line_range": (0, 10)}),
+            Document(page_content="chunk2", metadata={"source": "a.md", "line_range": (11, 20)}),
+            Document(page_content="chunk3", metadata={"source": "b.md"}),
+        ]
+        mock_retriever = MagicMock()
+        mock_retriever.invoke.return_value = docs
+        pipeline = RAGPipeline(retriever=mock_retriever, llm=lambda p: "answer")
+        result = pipeline.answer("question")
+        sources_line = result.split("Sources: ", 1)[1]
+        self.assertEqual(sources_line, "a.md, b.md")
 
     def test_answer_without_documents_returns_raw(self):
         pipeline = RAGPipeline(retriever=MagicMock(), llm=lambda p: "answer")
