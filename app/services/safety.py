@@ -155,7 +155,7 @@ def confirm_action(token):
             cwd=str(_allowed_dirs()[0]),
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=300,
         )
         output = result.stdout.strip() or result.stderr.strip()
         if not output:

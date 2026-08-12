@@ -24,7 +24,7 @@ class _AppSettings(BaseSettings):
 
     # ── Ollama ──────────────────────────────────────────────
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434/v1")
-    MODEL: str = Field(default="qwen2.5-coder:14b")
+    MODEL: str = Field(default="ornith:9b")
 
     # ── Telegram ────────────────────────────────────────────
     BOT_TOKEN: str = Field(default="")
@@ -51,10 +51,10 @@ class _AppSettings(BaseSettings):
         # ALLOWED_SHELL_COMMANDS — 기본값
         raw_cmds = os.getenv(
             "ALLOWED_SHELL_COMMANDS",
-            "python3,venv/bin/python,ls,pwd,cat,rg",
+            "python3,venv/bin/python,ls,pwd,cat,rg,claude,aider",
         )
         self._allowed_shell_commands: list[str] = _split_csv(raw_cmds) if raw_cmds else [
-            "python3", "venv/bin/python", "ls", "pwd", "cat", "rg"
+            "python3", "venv/bin/python", "ls", "pwd", "cat", "rg", "claude", "aider"
         ]
 
     @property

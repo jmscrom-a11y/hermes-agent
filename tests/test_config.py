@@ -17,11 +17,11 @@ class ConfigTest(unittest.TestCase):
         settings = self.load_settings({})
 
         self.assertEqual("http://localhost:11434/v1", settings.OLLAMA_BASE_URL)
-        self.assertEqual("qwen2.5-coder:14b", settings.MODEL)
+        self.assertEqual("ornith:9b", settings.MODEL)
         self.assertEqual("", settings.BOT_TOKEN)
         self.assertEqual("data/faiss_index", settings.RAG_INDEX_DIR)
         self.assertEqual(4, settings.RAG_TOP_K)
-        self.assertEqual(["python3", "venv/bin/python", "ls", "pwd", "cat", "rg"], settings.ALLOWED_SHELL_COMMANDS)
+        self.assertEqual(["python3", "venv/bin/python", "ls", "pwd", "cat", "rg", "claude", "aider"], settings.ALLOWED_SHELL_COMMANDS)
         self.assertEqual([], settings.TELEGRAM_ALLOWED_USER_IDS)
 
     def test_environment_overrides_are_parsed(self):
