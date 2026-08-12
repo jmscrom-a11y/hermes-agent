@@ -24,3 +24,22 @@ models/
 
 # Runtime state
 data/hermes_v4.db
+data/reminders.json
+data/reports/
+data/claude_code_usage.jsonl
+logs/
+
+# Claude Skill packages (personal reference material, not project code)
+*.skill
+
+# Scratch prompt-library notes living at repo root
+/1_SOUL_역할프롬프트.md
+/2_명령어_데모프롬프트_모음.md
+/3_콘텐츠스킬_스펙.md
+/4_디스코드_승인_워크플로우.md
+/Gemini PPT 프롬프트 10종.md
+/PPT 제작 전문가 스킬 프롬프트.md
+/데이터 요약, 분석 프롬프트 10선.md
+/보고서, 기획서 프롬프트 10선.md
+/이메일, 메시지 프롬프트 10선.md
+/자료조사 전문가 스킬 프롬프트.md
