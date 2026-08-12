@@ -32,4 +32,13 @@ def compile_check(file_path):
     return result.returncode == 0, result.stderr
 
 def restart():
-    subprocess.Popen(["bash", "restart.sh"])
+    import os, stat, subprocess
+    from pathlib import Path
+    script = Path("restart.sh")
+    if not script.exists(): raise FileNotFoundError("Script not found")
+    if script.is_symlink(): raise PermissionError("Symlink blocked")
+    if not os.access(script, os.X_OK): script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    subprocess.Popen(["./restart.sh"], shell=False)
+
+def search_internet(query: str) -> str:
+    return web_search_tool.run(query)

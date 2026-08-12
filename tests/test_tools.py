@@ -56,7 +56,7 @@ class ToolsTest(unittest.TestCase):
         with patch.object(tools.subprocess, "Popen") as popen:
             tools.restart()
 
-        popen.assert_called_once_with(["bash", "restart.sh"])
+        popen.assert_called_once_with(["./restart.sh"], shell=False)
 
 
 if __name__ == "__main__":
